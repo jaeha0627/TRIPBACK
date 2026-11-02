@@ -4,8 +4,11 @@ import android.os.Bundle
 import android.util.Log
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.constants.NaviErrorCode
+import ai.pleos.playground.navi.constants.WaypointIndex
+import ai.pleos.playground.navi.data.RequestWaypointInfo
 import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteStartInfo
+import ai.pleos.playground.navi.data.RouteWithWaypointsRequest
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -70,6 +73,11 @@ class MainActivity : ComponentActivity() {
                         Button(enabled = connected, onClick = { requestTestRoute() }) {
                             Text("테스트 목적지 안내 시작")
                         }
+                        Text("시연용 경유지: 판교 현대백화점 → 최종 목적지: 42dot")
+                        Text("경유지 위도 37.41275833 / 경도 127.09481944 (공식 문서 예시)")
+                        Button(enabled = connected, onClick = { requestTestRoute(withWaypoints = true) }) {
+                            Text("경유지 포함 안내 시작")
+                        }
                         Text(requestStatus)
                         Text("아래는 내비게이션 서비스의 실제 이벤트 수신 상태입니다.")
                         Text(routeStartedStatus)
@@ -123,29 +131,53 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestTestRoute() {
+    private fun requestTestRoute(withWaypoints: Boolean = false) {
         if (!connected || closing || isFinishing || isDestroyed) return
         val helper = naviHelper ?: return
         routeStartedStatus = "탐색 시작: 미수신"
         routingCompletedStatus = "탐색 완료: 미수신"
         destinationChangedStatus = "목적지 변경: 미수신"
         routeErrorStatus = "SDK 오류: 미수신"
-        requestStatus = "경로 요청 호출 (성공 판정 아님) / 결과는 아래 SDK 이벤트에서 확인"
+        val requestType = if (withWaypoints) "경유지 포함 경로" else "단일 목적지 경로"
+        val apiName = if (withWaypoints) "requestRouteWithWaypoints" else "requestRoute"
+        requestStatus = "$requestType 요청 호출 (성공 판정 아님) / 결과는 아래 SDK 이벤트에서 확인"
         try {
-            helper.requestRoute(
-                RouteInfo(
-                    latitude = 37.48544722,
-                    longitude = 127.03636666,
-                    poiName = "42dot",
-                    poiId = "36khp37hh8gqcm5nqhe5",
-                    address = "서울시 강남구 남부순환로 2621",
-                    poiSubId = "0"
-                )
+            val destination = RouteInfo(
+                latitude = 37.48544722,
+                longitude = 127.03636666,
+                poiName = "42dot",
+                poiId = "36khp37hh8gqcm5nqhe5",
+                address = if (withWaypoints) {
+                    "2621 Nambusunhwan-ro, Gangnam-gu, Seoul"
+                } else {
+                    "서울시 강남구 남부순환로 2621"
+                },
+                poiSubId = "0"
             )
-            Log.d("TripbackNavi", "requestRoute invoked for demo destination 42dot; result requires SDK callbacks")
+            if (withWaypoints) {
+                helper.requestRouteWithWaypoints(
+                    RouteWithWaypointsRequest(
+                        destination = destination,
+                        waypoints = listOf(
+                            RequestWaypointInfo(
+                                latitude = 37.41275833,
+                                longitude = 127.09481944,
+                                poiName = "Pangyo Hyundai Department Store",
+                                waypointIndex = WaypointIndex.FIRST,
+                                poiId = "36khp2hdj2cfcm5nqhe3",
+                                address = "6 Changup-ro 0beon-gil, Sujeong-gu, Seongnam-si, Gyeonggi-do",
+                                poiSubId = "0"
+                            )
+                        )
+                    )
+                )
+            } else {
+                helper.requestRoute(destination)
+            }
+            Log.d("TripbackNavi", "$apiName invoked for demo route; result requires SDK callbacks")
         } catch (error: Exception) {
-            Log.e("TripbackNavi", "requestRoute invocation failed", error)
-            requestStatus = "경로 요청 호출 실패: ${error.javaClass.simpleName}"
+            Log.e("TripbackNavi", "$apiName invocation failed", error)
+            requestStatus = "$requestType 요청 호출 실패: ${error.javaClass.simpleName}"
         }
     }
 

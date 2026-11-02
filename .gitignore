@@ -53,3 +53,4 @@ Thumbs.db
 # Release APK is intentionally NOT ignored:
 # the contest requires an actual tested APK in apk/ when submitted.
 # Do not commit unsigned/debug/test artifacts as a release build.
+.idea/

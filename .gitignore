@@ -1,0 +1,55 @@
+# Android / Gradle
+.gradle/
+**/build/
+**/.cxx/
+local.properties
+**/local.properties
+captures/
+.externalNativeBuild/
+.kotlin/
+
+# Android Studio / IDE local state
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+*.iml
+.vscode/
+
+# Java / Spring
+target/
+out/
+*.class
+*.log
+logs/
+
+# Runtime secrets and local configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+secrets.properties
+**/secrets.properties
+application-local.yml
+application-local.yaml
+application-local.properties
+**/application-local.yml
+**/application-local.yaml
+**/application-local.properties
+google-services.json
+**/google-services.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Release APK is intentionally NOT ignored:
+# the contest requires an actual tested APK in apk/ when submitted.
+# Do not commit unsigned/debug/test artifacts as a release build.

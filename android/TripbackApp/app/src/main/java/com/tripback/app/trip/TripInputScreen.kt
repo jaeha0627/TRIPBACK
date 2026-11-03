@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, modifier: Modifier = Modifier) {
+fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, onShowPlans: () -> Unit, modifier: Modifier = Modifier) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var submitted by rememberSaveable { mutableStateOf(false) }
     var showErrors by rememberSaveable { mutableStateOf(false) }
@@ -80,6 +80,12 @@ fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, modifier: M
         }
         if (showErrors) errors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = { showErrors = true; submitted = errors.isEmpty() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("입력 확인") }
+        Button(
+            onClick = { if (input.validationErrors().isEmpty()) onShowPlans() },
+            enabled = errors.isEmpty(),
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) { Text("추천 코스 보기") }
+        Text("실제 AI 추천 대신 DEMO_SIMULATED 고정 코스 예시를 보여줍니다.")
         if (submitted) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

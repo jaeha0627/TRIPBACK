@@ -35,6 +35,10 @@ import androidx.compose.ui.unit.dp
 import com.tripback.app.ui.theme.TripbackAppTheme
 import com.tripback.app.trip.TripInput
 import com.tripback.app.trip.TripInputScreen
+import com.tripback.app.trip.TripPlanResults
+import com.tripback.app.trip.TripPlanResultsScreen
+import com.tripback.app.trip.demoTripPlanResults
+import com.tripback.app.trip.validationErrors
 
 class MainActivity : ComponentActivity() {
     private var naviHelper: NaviHelper? = null
@@ -76,15 +80,39 @@ class MainActivity : ComponentActivity() {
             TripbackAppTheme {
                 var showSdkTests by rememberSaveable { mutableStateOf(false) }
                 var tripInput by rememberSaveable { mutableStateOf(TripInput()) }
-                BackHandler(enabled = showSdkTests) { showSdkTests = false }
+                var planResults by rememberSaveable { mutableStateOf<TripPlanResults?>(null) }
+                var showPlans by rememberSaveable { mutableStateOf(false) }
+                BackHandler(enabled = showSdkTests || showPlans) {
+                    if (showSdkTests) showSdkTests = false else showPlans = false
+                }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
-                            Button(onClick = { showSdkTests = false }, enabled = showSdkTests) { Text("여행 조건") }
+                            Button(onClick = { showSdkTests = false; showPlans = false }, enabled = showSdkTests || showPlans) { Text("여행 조건") }
                             Button(onClick = { showSdkTests = true }, enabled = !showSdkTests) { Text("SDK 테스트") }
                         }
                         if (!showSdkTests) {
-                            TripInputScreen(input = tripInput, onChange = { tripInput = it }, modifier = Modifier.weight(1f))
+                            val results = planResults
+                            if (showPlans && results != null) {
+                                TripPlanResultsScreen(
+                                    results = results,
+                                    onSelect = { planResults = results.select(it) },
+                                    onBack = { showPlans = false },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                TripInputScreen(
+                                    input = tripInput,
+                                    onChange = { tripInput = it; planResults = null; showPlans = false },
+                                    onShowPlans = {
+                                        if (tripInput.validationErrors().isEmpty()) {
+                                            if (planResults == null) planResults = demoTripPlanResults(tripInput)
+                                            showPlans = true
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         } else {
                             Column(
                                 modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),

@@ -1,7 +1,7 @@
-# Tripback 앱↔서버 API 계약 (v0.2, DEMO plan 구현)
+# Tripback 앱↔서버 API 계약 (v0.3, 선택 활성화 검증 API)
 
-현재 구현: `GET /api/v1/health`, `POST /api/v1/trips/plan`, 기존 `GET /actuator/health`.
-Android 네트워크 연결, AI, 실제 POI 검색, 경로·시간 검증, 저장 및 재계획은 미구현입니다.
+현재 구현: `GET /api/v1/health`, DEMO 전용 `POST /api/v1/trips/plan`, 기본 비활성 `POST /api/v1/trips/validate`, 기존 `GET /actuator/health`.
+장소 검색·현재 자동차 ETA·귀가시간 계산을 연결한 별도 검증 API를 제공합니다. Android 연결, AI, 저장 및 재계획은 미구현입니다. 기존 plan은 실제 장소·경로 검증을 수행하지 않습니다.
 
 ## 기본 원칙
 - JSON / UTF-8. 운영 통신은 HTTPS를 전제로 하며 현재 자동 테스트는 로컬 HTTP 임의 포트를 사용합니다.
@@ -175,4 +175,141 @@ HTTP 200, `application/json`. `tripId`는 요청마다 새 `demo-<UUID>`이며 �
 | 서버 통신 실패 | 캐시 및 DEMO 모드 표시, 실제 경로 안내 성공으로 표기 금지 |
 | SDK 미지원 | 앱에서 수동 도착·출발 흐름으로 대체 |
 
-> replan/approve 및 위 향후 오류 정책은 제안입니다. 현재 구현된 API는 health와 DEMO 전용 plan이며, Android·AI·Pleos SDK 통합은 미구현입니다.
+> replan/approve 및 위 향후 오류 정책은 제안입니다. health·DEMO 전용 plan과 아래 선택 활성화 validate API를 구현했습니다. Android·AI·Pleos SDK 연결은 미구현입니다.
+
+## POST /api/v1/trips/validate — 기본 비활성 개발용 검증 API
+
+기존 `/trips/plan` 계약은 변경하지 않습니다. 새 API는 내부 TripValidationService를 호출하는 별도 경로이며 Controller에서 카카오 HTTP 호출이나 귀가시간 계산을 재구현하지 않습니다.
+
+### 활성화와 운영 범위
+
+- 서버 시작 환경에 `TRIPBACK_ENABLE_TRIP_VALIDATION_API=true`를 설정한 경우에만 Controller가 등록됩니다. 기본/false에서는 `/api/v1/trips/validate`가 등록되지 않아 HTTP 404입니다. 서버 재시작이 필요합니다.
+- Spring 조건부 속성으로 평가하며 자동 테스트에서는 해당 속성을 테스트 컨텍스트에만 설정합니다. 운영 키는 기존 Adapter가 서버 환경변수 `TRIPBACK_KAKAO_LOCAL_REST_API_KEY`, `TRIPBACK_KAKAO_MOBILITY_REST_API_KEY`에서만 읽습니다. 키를 JSON·설정 파일·Android·로그에 넣지 않습니다.
+- 요청당 장소 검색 최대 5회, 경로 조회 최대 6회입니다. 장소가 하나라도 확인되지 않으면 모든 경로 조회를 보류합니다. 서버 시작 시 외부 호출이 없고 자동 재시도도 없습니다.
+- 개발용 활성화 스위치는 인증·호출량 제한을 제공하지 않습니다. 인증과 rate limiting이 없는 공개 배포는 금지합니다. 로컬/비공개 네트워크에서만 사용하고 공개 노출 전에는 별도 인증·권한·호출량 제한을 구현해야 합니다.
+- Android·NaviHelper 연결은 이번 범위에 포함하지 않습니다. 카카오 ID를 Pleos POI ID로 취급하거나 변환하지 않습니다.
+
+로컬 PowerShell 활성화 예시 (키 값 입력/출력 예시는 제공하지 않음):
+
+```powershell
+$env:TRIPBACK_ENABLE_TRIP_VALIDATION_API = 'true'
+.\gradlew.bat bootRun
+```
+
+### 요청
+
+`Content-Type: application/json`. 아래 `선택한_카카오_ID`는 실제 검색에서 사용자가 선택한 ID로 바꾸는 자리표시자이며 실장소 검증 증거가 아닙니다.
+
+```json
+{
+  "origin": {"latitude": 37.1, "longitude": 127.1},
+  "departAt": "2026-11-07T08:00:00+09:00",
+  "returnDeadline": "2026-11-07T18:00:00+09:00",
+  "safetyBufferMin": 30,
+  "visits": [
+    {
+      "keyword": "사용자가 선택한 장소 검색어",
+      "selectedId": {"provider": "KAKAO_LOCAL", "value": "선택한_카카오_ID"},
+      "stayMinutes": 60
+    }
+  ]
+}
+```
+
+| 필드 | 검증 |
+|---|---|
+| origin | 필수 객체, 숫자 latitude -90~90 / longitude -180~180, 비유한 숫자 불가 |
+| departAt / returnDeadline | 필수 문자열, ISO 8601 및 UTC 오프셋 필수, 마감은 실제 시점으로 출발보다 뒤여야 함. 동일 시점 불가 |
+| safetyBufferMin | 필수 JSON 정수 15 / 30 / 45 |
+| visits | 필수 배열 1~5개, 입력 순서 유지, null 원소 불가 |
+| visits[].keyword | 필수 문자열, 공백 불가, 최대 200자 |
+| visits[].selectedId | 필수 객체, provider는 KAKAO_LOCAL, value는 공백 없는 ID 문자열(최대 200자), 중복 ID 거부 |
+| visits[].stayMinutes | 필수 JSON 정수 0 이상, long 및 엔진 시간 범위 이내 |
+
+- 위 모든 필드는 누락/null을 거부합니다. 숫자 문자열, 소수/지수 표기로 표현한 정수 시간(예: 30.0), 잘못된 타입, 중복 JSON 키와 후행 JSON을 거부합니다.
+- 미지원 필드는 모든 객체 수준에서 거부합니다. 예산·필수 방문 제약·차종·임의 데이터 모드 등을 조용히 무시하지 않습니다. 요청 JSON 처리 한도는 64KiB이며 초과 시 400입니다. 이는 프록시/서버의 전송 크기 제한을 대체하지 않습니다.
+- ID는 문자열 원문으로 취급하며 숫자로 바꾸지 않습니다. 잘못된 좌표와 중복 ID, 체류 합/입력 체류만으로 발생하는 시간 오버플로는 내부 서비스 호출 전에 거부합니다. 미래 날짜를 넣는 것은 미래 교통 검증을 뜻하지 않습니다.
+- 검색은 첫 페이지 최대 15개 후보에서 정확한 ID 일치를 확인합니다. 해당 페이지에 없으면 SELECTED_PLACE_NOT_FOUND이며 다른 장소로 대체하거나 방문지를 삭제하지 않습니다.
+
+### 응답
+
+입력이 유효하면 FEASIBLE / INFEASIBLE / UNKNOWN 모두 HTTP 200입니다. Provider 인증/연결 오류, 미설정, 경로 없음, ETA 누락은 내부 통합 서비스의 정상 UNKNOWN 결과이며 HTTP 500과 구별합니다.
+
+| 필드 | 의미 |
+|---|---|
+| feasibility | 제공된 ETA를 기준으로 한 수학적 FEASIBLE / INFEASIBLE / UNKNOWN |
+| dataCoverage | INCOMPLETE / CONTAINS_DEMO / ALL_PROVIDER_DATA_DECLARED_VALIDATED |
+| dataModes | 장소·경로의 원래 출처 집합. VERIFIED_LIVE / VERIFIED_CACHED / DEMO_SIMULATED, 정렬된 배열 |
+| visits | 모든 방문지를 index 순서로 보존. requestedId, stayMinutes, confirmedPlace, identityStatus, visitStatus, searchStatus, attemptedAt, reason, failure |
+| confirmedPlace | 확인된 id, name, address, coordinates, data. 미확인 시 null |
+| identityStatus / visitStatus | MATCHED_SELECTED_ID 또는 UNCONFIRMED / 항상 NOT_VERIFIED. ID 일치가 영업·방문 가능 검증을 뜻하지 않음 |
+| legs | 귀가 포함 N+1개. index, 요청 origin/destination, durationSeconds, 원래 Provider status, data, attemptedAt, reason, failure |
+| data | provider, dataMode, verification, retrievedAt만 명시적으로 매핑 |
+| failure | 안전한 code와 httpStatus만 반환. 원본 본문·헤더·예외 메시지 없음 |
+| totalTravelMinutes / totalStayMinutes | 엔진 총 이동 분(구간별 초→분 올림) / 총 체류 분 |
+| predictedReturnAt | 엔진 예상 귀가 시각 ISO 8601 문자열 또는 null |
+| remainingMarginMin | 마감 대비 남은 분, 부족하면 음수. UNKNOWN은 null |
+| returnDeadlineMet / safetyBufferSatisfied | 엔진 마감/안전 여유 충족 판정 또는 null |
+| missingEtaLegIndexes | 계산용 ETA 누락 index 배열. 계산 자체 오버플로 시 null |
+| routeDataStatus / unknownReasons | 기존 엔진의 경로 데이터 상태 및 미확인 사유 |
+| calculationFailure | 정상 계산에서는 null. 총 시간/시각 오버플로는 CALCULATION_OVERFLOW |
+| notice | 수학적 계산 및 현재 출발 ETA 한계, 귀가 보장 아님, 출발지/방문 가능성 미검증 고지 |
+
+- 장소 확인 실패 시 방문지와 N+1개 구간을 그대로 유지합니다. query를 구성할 수 없는 구간은 origin/destination=null, status=NOT_VALIDATED, reason=PLACES_UNRESOLVED입니다.
+- Provider가 응답한 status와 통합 실패 reason은 별도입니다. Provider가 FOUND라도 요청 좌표 불일치나 시간 오버플로로 거부된 ETA는 durationSeconds/data=null입니다. status만 보고 사용할 수 있는 ETA라고 판단하지 않습니다.
+- ETA 부족 UNKNOWN은 예상 시각·총 이동시간·남은 여유·충족 여부가 null입니다. 계산 자체 오버플로는 총 시간·시각·ETA 누락 index가 null이고 calculationFailure가 원인을 설명합니다. 실패 index 및 원래 장소·구간 목록은 유지합니다.
+- ALL_PROVIDER_DATA_DECLARED_VALIDATED는 모든 데이터가 실시간 LIVE라는 뜻이 아닙니다. CACHED가 포함될 수 있으므로 dataModes 및 각 data를 함께 확인해야 합니다. 엔진 routeDataStatus는 경로만의 상태이며 전체 장소/일정 상태를 대체하지 않습니다.
+- FEASIBLE은 실제 귀가 보장이 아닙니다. 현재 출발 기준 ETA를 미래 날짜의 교통으로 해석하지 않습니다. 출발지 정체성·영업·예약·주차·차량 접근성·미래 교통은 검증하지 않습니다.
+
+키가 설정되지 않은 경우의 응답 예시입니다. 시각과 ID는 설명용이며 실제 API 호출 결과가 아닙니다.
+
+```json
+{
+  "feasibility": "UNKNOWN",
+  "dataCoverage": "INCOMPLETE",
+  "dataModes": [],
+  "visits": [{
+    "index": 0,
+    "requestedId": {"provider": "KAKAO_LOCAL", "value": "선택한_카카오_ID"},
+    "stayMinutes": 60,
+    "confirmedPlace": null,
+    "identityStatus": "UNCONFIRMED",
+    "visitStatus": "NOT_VERIFIED",
+    "searchStatus": "UNAVAILABLE",
+    "attemptedAt": "2026-11-03T00:00:00Z",
+    "reason": "PLACE_SEARCH_UNAVAILABLE",
+    "failure": {"code": "NOT_CONFIGURED", "httpStatus": null}
+  }],
+  "legs": [
+    {"index": 0, "origin": null, "destination": null, "durationSeconds": null, "status": "NOT_VALIDATED", "data": null, "attemptedAt": null, "reason": "PLACES_UNRESOLVED", "failure": null},
+    {"index": 1, "origin": null, "destination": null, "durationSeconds": null, "status": "NOT_VALIDATED", "data": null, "attemptedAt": null, "reason": "PLACES_UNRESOLVED", "failure": null}
+  ],
+  "totalTravelMinutes": null,
+  "totalStayMinutes": 60,
+  "predictedReturnAt": null,
+  "remainingMarginMin": null,
+  "returnDeadlineMet": null,
+  "safetyBufferSatisfied": null,
+  "missingEtaLegIndexes": [0, 1],
+  "routeDataStatus": "INCOMPLETE",
+  "unknownReasons": ["MISSING_ETA"],
+  "calculationFailure": null,
+  "notice": "MATHEMATICAL_RESULT_ONLY; CURRENT_DEPARTURE_ETAS_NOT_FUTURE_TRAFFIC; RETURN_NOT_GUARANTEED; ORIGIN_COORDINATES_ONLY; VISITABILITY_NOT_VERIFIED"
+}
+```
+
+### HTTP 오류와 검증 범위
+
+- 400: 잘못된 입력. 응답은 `{"code":"INVALID_REQUEST"}`이며 입력/파서/도메인 예외 원문을 반환하거나 로그에 남기지 않습니다. 외부 Provider 호출 없음.
+- 404: 기본 비활성 상태에서 엔드포인트 미등록.
+- 415: JSON Content-Type 미사용 (Spring MVC 기본 처리).
+- 500: 예상하지 못한 서버 내부 예외. `{"code":"INTERNAL_ERROR"}`만 반환하며 Provider UNKNOWN과 구분합니다.
+- 자동 테스트는 Fake Provider 및 로컬 HTTP 서버를 사용합니다. 가상 장소/ETA는 DEMO로 유지하고, 혼합 출처 HTTP 매핑은 별도 메타데이터 전용 mock으로 확인합니다. 실제 인증키 및 외부 API 호출은 필요하지 않습니다. 인증·호출량 제한과 실제 Live 왕복 검증은 구현/검증 범위에 포함하지 않습니다.
+
+### 검증 API 자동 검증 결과 (2026-11-03)
+
+- backend에서 Java 25.0.3으로 `.\gradlew.bat test bootJar` 성공, 실행 JAR 생성 확인.
+- 신규 31건: Fake Provider REST 27건, 기본 비활성 1건, 내부 예외/출처 매핑 안전성 3건 모두 성공.
+- 전체 164건: 성공 162, 실패 0, 오류 0, SKIPPED 2. 기존 DEMO API 회귀 테스트 통과.
+- 장소·경로 Live 테스트는 활성화 플래그와 인증키를 빌드 프로세스에서 제거해 SKIPPED 처리했습니다. 실제 외부 카카오 API 호출 없음.
+- `git diff --check` 및 신규 파일 공백 검사 통과. 실제 인증 호출·공개 배포·Android/실차 통합은 검증하지 않았습니다.

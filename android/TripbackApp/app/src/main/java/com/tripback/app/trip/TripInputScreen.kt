@@ -16,6 +16,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.platform.LocalContext
+import android.app.DatePickerDialog
+import java.time.LocalDate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,11 +31,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, onShowPlans: () -> Unit, modifier: Modifier = Modifier) {
+fun TripInputScreen(
+    input: TripInput,
+    onChange: (TripInput) -> Unit,
+    onShowPlans: () -> Unit,
+    schedule: TripSchedule,
+    onScheduleChange: (TripSchedule) -> Unit,
+    loading: Boolean,
+    requestError: String?,
+    onLocalDemo: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var submitted by rememberSaveable { mutableStateOf(false) }
     var showErrors by rememberSaveable { mutableStateOf(false) }
     val errors = input.validationErrors()
+    val requestErrors = schedule.validationErrors(input)
+    val context = LocalContext.current
     val change: (TripInput) -> Unit = { submitted = false; onChange(it) }
     Column(
         modifier.verticalScroll(rememberScrollState()).padding(20.dp),
@@ -39,6 +57,15 @@ fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, onShowPlans
         Text("가는 길부터 돌아오는 길까지 · AI 추천 연결 전")
         Text("정차 중 입력해 주세요. 차량 상태 연동과 주행 중 자동 편집 제한은 아직 없습니다.")
         ChoiceGroup("여행 지역", TripChoices.regions.associateWith { it }, setOf(input.region)) { change(input.copy(region = it)) }
+        OutlinedTextField(schedule.date, { onScheduleChange(schedule.copy(date = it, confirmed = false)) },
+            label = { Text("여행 날짜 (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        TextButton(onClick = {
+            val date = runCatching { LocalDate.parse(schedule.date) }.getOrElse { LocalDate.now() }
+            DatePickerDialog(context, { _, year, month, day ->
+                onScheduleChange(schedule.copy(date = LocalDate.of(year, month + 1, day).toString(), confirmed = false))
+            }, date.year, date.monthValue - 1, date.dayOfMonth).show()
+        }) { Text("날짜 선택") }
+        Text("기기 시간대: ${schedule.zoneId} · 선택한 날짜의 UTC 오프셋을 적용합니다.")
         OutlinedTextField(input.departTime, { change(input.copy(departTime = it)) },
             label = { Text("출발시간 (HH:mm)") }, singleLine = true,
             isError = showErrors && errors.isNotEmpty(), modifier = Modifier.fillMaxWidth())
@@ -46,6 +73,14 @@ fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, onShowPlans
             label = { Text("귀가 마감시간 (HH:mm)") }, singleLine = true,
             isError = showErrors && errors.isNotEmpty(), modifier = Modifier.fillMaxWidth())
         Text("같은 날 일정만 지원합니다. 귀가 마감은 출발보다 2시간 넘게 뒤로 정해 주세요.")
+        Row {
+            Checkbox(checked = schedule.confirmed, onCheckedChange = { onScheduleChange(schedule.copy(confirmed = it)) })
+            Text("여행 날짜와 기기 시간대를 확인했습니다.")
+        }
+        if (requestErrors.isEmpty()) {
+            val (start, end) = schedule.timestamps(input)
+            Text("전송할 출발: $start\n전송할 귀가 마감: $end")
+        }
         ChoiceGroup("안전 여유", listOf(15, 30, 45).associate { it.toString() to "${it}분" }, setOf(input.safetyBufferMin.toString())) {
             change(input.copy(safetyBufferMin = it.toInt()))
         }
@@ -60,6 +95,7 @@ fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, onShowPlans
         }
         ChoiceGroup("차량 종류 · 직접 선택", TripChoices.vehicles, setOf(input.vehicleType)) { change(input.copy(vehicleType = it)) }
         Text("출발지 검색·꼭 가고 싶은 곳 검색: 후속 기능입니다. 실제 위치·POI·좌표를 조회하지 않습니다.")
+        Text("예산·식사·걷기·주차·편의시설·우천 선호는 이번 시연 추천에 미반영이며 서버에 전송하지 않습니다. 기본 조건도 AI 최적화에 사용되는 단계는 아닙니다.")
         TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(if (expanded) "선택 조건 접기 −" else "선택 조건 펼치기 +")
         }
@@ -81,11 +117,21 @@ fun TripInputScreen(input: TripInput, onChange: (TripInput) -> Unit, onShowPlans
         if (showErrors) errors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = { showErrors = true; submitted = errors.isEmpty() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("입력 확인") }
         Button(
-            onClick = { if (input.validationErrors().isEmpty()) onShowPlans() },
-            enabled = errors.isEmpty(),
+            onClick = { if (requestErrors.isEmpty()) onShowPlans() },
+            enabled = requestErrors.isEmpty() && !loading,
             modifier = Modifier.heightIn(min = 48.dp)
         ) { Text("추천 코스 보기") }
-        Text("실제 AI 추천 대신 DEMO_SIMULATED 고정 코스 예시를 보여줍니다.")
+        Text("개발 서버에 DEMO_SIMULATED 코스를 요청합니다. 실제 AI 추천·경로/시간 검증은 아직 없습니다.")
+        requestErrors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (loading) {
+            CircularProgressIndicator()
+            Text("서버 요청 중… 중복 요청은 차단됩니다. 입력 변경·화면 이동 시 이 요청의 결과는 무시됩니다.")
+        }
+        if (requestError != null) {
+            Text(requestError, color = MaterialTheme.colorScheme.error)
+            Text("서버 코스를 받지 못했습니다. 로컬 데이터로 자동 대체하지 않습니다.")
+            Button(onClick = onLocalDemo, enabled = requestErrors.isEmpty() && !loading) { Text("로컬 시연 코스 보기") }
+        }
         if (submitted) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

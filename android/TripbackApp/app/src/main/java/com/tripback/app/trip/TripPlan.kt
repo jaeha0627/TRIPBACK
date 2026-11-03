@@ -3,6 +3,7 @@ package com.tripback.app.trip
 import java.io.Serializable
 
 enum class PlanDataMode { DEMO_SIMULATED }
+enum class PlanSource { LOCAL_DEMO, SERVER_DEMO }
 
 // Local presentation models, not finalized server DTOs. IDs identify UI items only.
 // No placeId/coordinates: these fictional stops must never be passed to navigation.
@@ -24,13 +25,20 @@ data class TripPlan(
     // Unknown until deterministic server route/time checks; never infer from stay times.
     val predictedReturnAt: String? = null,
     val travelMinutes: Int? = null,
-    val isFeasible: Boolean? = null
+    val isFeasible: Boolean? = null,
+    val remainingMarginMin: Int? = null
 ) : Serializable
 
 data class TripPlanResults(
     val input: TripInput,
     val alternatives: List<TripPlan>,
-    val selectedPlanId: String? = null
+    val selectedPlanId: String? = null,
+    val source: PlanSource = PlanSource.LOCAL_DEMO,
+    val tripId: String? = null,
+    val dataMode: PlanDataMode = PlanDataMode.DEMO_SIMULATED,
+    val validationStatus: String = "NOT_ROUTE_TIME_VALIDATED",
+    val notice: String = "사용자가 선택한 로컬 시연 코스입니다. 서버 응답이 아니며 서버 경로·시간 검증 전입니다.",
+    val schedule: TripSchedule? = null
 ) : Serializable {
     val selectedPlan: TripPlan? get() = alternatives.find { it.planId == selectedPlanId }
 

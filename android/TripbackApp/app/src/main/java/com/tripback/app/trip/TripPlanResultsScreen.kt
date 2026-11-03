@@ -27,10 +27,16 @@ fun TripPlanResultsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("여행 코스 예시 2가지", style = MaterialTheme.typography.headlineMedium)
-        Text("DEMO_SIMULATED · 실제 AI 추천 연결 전")
+        Text(if (results.source == PlanSource.SERVER_DEMO) "서버에서 받은 시연 코스" else "로컬 시연 코스 · 서버 응답 아님")
+        Text("${results.dataMode.name} · 실제 AI 추천 연결 전")
+        results.tripId?.let { Text("tripId: $it") }
+        Text(results.validationStatus)
+        Text(results.notice)
+        results.schedule?.let { Text("여행 날짜: ${it.date} · 시간대: ${it.zoneId}") }
         Text("입력과 무관한 고정 시연 코스입니다. 모든 장소는 가상이며 실제 방문 장소가 아닙니다.")
         Text("선택한 여행 조건", style = MaterialTheme.typography.titleLarge)
         Text(results.input.summary())
+        Text("예산·식사·걷기·주차·편의시설·우천 선호는 이번 시연 추천에 미반영입니다.")
         Text("서버 경로·시간 검증 전", style = MaterialTheme.typography.titleLarge)
         Text("예상 귀가시간·이동시간·귀가 가능성은 미확인입니다. 체류시간도 시연 값이며, 선택해도 실제 안내는 시작하지 않습니다.")
         results.alternatives.forEachIndexed { index, plan ->

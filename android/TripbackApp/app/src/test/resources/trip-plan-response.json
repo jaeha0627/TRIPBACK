@@ -1,0 +1,40 @@
+{
+  "tripId":"demo-contract-fixture",
+  "dataMode":"DEMO_SIMULATED",
+  "validationStatus":"NOT_ROUTE_TIME_VALIDATED",
+  "notice":"고정 시연 코스이며 AI 최적화 결과가 아닙니다. 서버 경로·시간 검증 전입니다. 실제 내비게이션에 사용할 수 없습니다.",
+  "alternatives":[
+    {
+      "planId":"demo-relaxed",
+      "title":"여유형",
+      "description":"방문 수를 줄인 고정 시연 예시입니다. 시간 여유가 검증된 코스는 아닙니다.",
+      "dataMode":"DEMO_SIMULATED",
+      "stops":[
+        {"stopId":"relaxed-1","name":"시연 체험 공간","category":"체험","stayMinutes":60,"description":"가상의 체험 장소에서 머무는 일정 예시","dataMode":"DEMO_SIMULATED"},
+        {"stopId":"relaxed-2","name":"시연 식사 공간","category":"식사","stayMinutes":60,"description":"가상의 식사 장소에서 쉬어가는 일정 예시","dataMode":"DEMO_SIMULATED"},
+        {"stopId":"relaxed-3","name":"시연 휴식 공간","category":"휴식","stayMinutes":45,"description":"가상의 휴식 장소에서 마무리하는 일정 예시","dataMode":"DEMO_SIMULATED"}
+      ],
+      "predictedReturnAt":null,
+      "travelMinutes":null,
+      "isFeasible":null,
+      "remainingMarginMin":null
+    },
+    {
+      "planId":"demo-full",
+      "title":"알찬형",
+      "description":"활동 종류를 늘린 고정 시연 예시입니다. 입력 조건 충족 여부는 검증하지 않았습니다.",
+      "dataMode":"DEMO_SIMULATED",
+      "stops":[
+        {"stopId":"full-1","name":"시연 산책 공간","category":"산책·자연","stayMinutes":40,"description":"가상의 산책 장소를 둘러보는 일정 예시","dataMode":"DEMO_SIMULATED"},
+        {"stopId":"full-2","name":"시연 문화 공간","category":"전시·문화","stayMinutes":50,"description":"가상의 문화 장소를 방문하는 일정 예시","dataMode":"DEMO_SIMULATED"},
+        {"stopId":"full-3","name":"시연 식사 공간","category":"식사","stayMinutes":50,"description":"가상의 식사 장소를 방문하는 일정 예시","dataMode":"DEMO_SIMULATED"},
+        {"stopId":"full-4","name":"시연 체험 공간","category":"체험","stayMinutes":60,"description":"가상의 체험 장소를 방문하는 일정 예시","dataMode":"DEMO_SIMULATED"},
+        {"stopId":"full-5","name":"시연 카페 공간","category":"카페","stayMinutes":30,"description":"가상의 카페 장소에서 마무리하는 일정 예시","dataMode":"DEMO_SIMULATED"}
+      ],
+      "predictedReturnAt":null,
+      "travelMinutes":null,
+      "isFeasible":null,
+      "remainingMarginMin":null
+    }
+  ]
+}

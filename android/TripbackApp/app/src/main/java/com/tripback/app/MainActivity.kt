@@ -11,11 +11,16 @@ import ai.pleos.playground.navi.data.RouteStartInfo
 import ai.pleos.playground.navi.data.RouteWithWaypointsRequest
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.Button
@@ -23,9 +28,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.tripback.app.ui.theme.TripbackAppTheme
+import com.tripback.app.trip.TripInput
+import com.tripback.app.trip.TripInputScreen
 
 class MainActivity : ComponentActivity() {
     private var naviHelper: NaviHelper? = null
@@ -65,25 +74,41 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             TripbackAppTheme {
+                var showSdkTests by rememberSaveable { mutableStateOf(false) }
+                var tripInput by rememberSaveable { mutableStateOf(TripInput()) }
+                BackHandler(enabled = showSdkTests) { showSdkTests = false }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding)) {
-                        ConnectionStatus(status = connectionStatus)
-                        Text("시연용 테스트 목적지: 42dot")
-                        Text("위도 37.48544722 / 경도 127.03636666 (공식 문서 예시)")
-                        Button(enabled = connected, onClick = { requestTestRoute() }) {
-                            Text("테스트 목적지 안내 시작")
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
+                            Button(onClick = { showSdkTests = false }, enabled = showSdkTests) { Text("여행 조건") }
+                            Button(onClick = { showSdkTests = true }, enabled = !showSdkTests) { Text("SDK 테스트") }
                         }
-                        Text("시연용 경유지: 판교 현대백화점 → 최종 목적지: 42dot")
-                        Text("경유지 위도 37.41275833 / 경도 127.09481944 (공식 문서 예시)")
-                        Button(enabled = connected, onClick = { requestTestRoute(withWaypoints = true) }) {
-                            Text("경유지 포함 안내 시작")
+                        if (!showSdkTests) {
+                            TripInputScreen(input = tripInput, onChange = { tripInput = it }, modifier = Modifier.weight(1f))
+                        } else {
+                            Column(
+                                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ConnectionStatus(status = connectionStatus)
+                                Text("시연용 테스트 목적지: 42dot")
+                                Text("위도 37.48544722 / 경도 127.03636666 (공식 문서 예시)")
+                                Button(enabled = connected, onClick = { requestTestRoute() }) {
+                                    Text("테스트 목적지 안내 시작")
+                                }
+                                Text("시연용 경유지: 판교 현대백화점 → 최종 목적지: 42dot")
+                                Text("경유지 위도 37.41275833 / 경도 127.09481944 (공식 문서 예시)")
+                                Button(enabled = connected, onClick = { requestTestRoute(withWaypoints = true) }) {
+                                    Text("경유지 포함 안내 시작")
+                                }
+                                Text(requestStatus)
+                                Text("아래는 내비게이션 서비스의 실제 이벤트 수신 상태입니다.")
+                                Text(routeStartedStatus)
+                                Text(routingCompletedStatus)
+                                Text(destinationChangedStatus)
+                                Text(routeErrorStatus)
+                            }
                         }
-                        Text(requestStatus)
-                        Text("아래는 내비게이션 서비스의 실제 이벤트 수신 상태입니다.")
-                        Text(routeStartedStatus)
-                        Text(routingCompletedStatus)
-                        Text(destinationChangedStatus)
-                        Text(routeErrorStatus)
                     }
                 }
             }

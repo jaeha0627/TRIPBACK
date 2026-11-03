@@ -1,6 +1,6 @@
 # 장소 검색·자동차 경로 Provider 기반
 
-현재 상태: 인터페이스·모델·검증·사용 불가 기본 구현만 있습니다. **카카오 외부 API 호출, 응답 Adapter, API 키 조회, 캐시, 영업/방문 가능성 검증은 미구현**입니다. `TripPlanService`나 REST API에는 연결하지 않았습니다.
+현재 상태: **카카오 로컬 키워드 검색 HTTP Adapter와 Spring 설정을 구현하고, 실제 키 없는 로컬 모의 서버 테스트를 수행했습니다. 공식 API에 대한 인증된 호출은 아직 검증하지 않았습니다.** 자동차 경로 Adapter, 캐시, 영업/방문 가능성 검증은 미구현입니다. `TripPlanService`나 REST API에는 연결하지 않았습니다.
 
 기존 DEMO plan API의 `predictedReturnAt`, `travelMinutes`, `isFeasible`, `remainingMarginMin`은 null로 유지합니다. 기존 귀가시간 계산 엔진의 규칙도 변경하지 않았습니다.
 
@@ -21,8 +21,10 @@
 | ProviderFailure | 안전한 분류 코드, 선택 HTTP 상태, 선택 재시도 대기시간 |
 | UnavailableProviders | 운영용 기본 구현. 네트워크/환경변수를 사용하지 않고 항상 UNAVAILABLE 반환 |
 | RouteLegMapper | 기존 TravelLeg로 명시적으로 변환. 필수 구간과 출처를 유지 |
+| kakao/KakaoPlaceSearchAdapter | 카카오 로컬 키워드 HTTP 요청·제한·응답 검증 |
+| kakao/KakaoPlaceSearchConfiguration | 키 없는 서버 시작도 가능한 Spring PlaceSearchProvider Bean 등록 |
 
-현재 기본 구현의 오류는 ADAPTER_NOT_IMPLEMENTED입니다. 키가 있더라도 실제 Adapter가 없으므로 사용 가능으로 바뀌지 않습니다. 향후 Adapter는 키·설정 누락 시 NOT_CONFIGURED/UNAVAILABLE을 반환해야 합니다. 빈 검색 결과로 대신 성공 처리하면 안 됩니다.
+Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter입니다. 실제 검색 시 환경변수 키가 없으면 NOT_CONFIGURED/UNAVAILABLE을 반환하며 서버 시작은 실패하지 않습니다. 명시적 Bean 재정의가 가능하고 기존 UnavailableProviders 팩터리는 호환성을 위해 유지합니다. RoadRouteProvider와 기존 미구현 기본 팩터리는 계속 ADAPTER_NOT_IMPLEMENTED/UNAVAILABLE입니다. 빈 검색 결과를 장애 대신 성공 처리하지 않습니다.
 
 ## 데이터 경계
 
@@ -30,9 +32,9 @@
 - 카카오맵 ID는 **Pleos NaviHelper POI ID가 아닙니다**. 이 계층에는 Pleos ID 변환이나 내비게이션 전송 코드가 없습니다.
 - 좌표는 `Double.isFinite`와 위도 -90~90 / 경도 -180~180 범위를 검사합니다. 범위 검사는 실장소 존재·차량 진입 가능성 검증이 아닙니다.
 - 검색 후보의 `visitStatus`는 항상 NOT_VERIFIED입니다. 공급자 응답 데이터가 검증됐어도 현재 영업·예약·휴무·입장·주차 여부가 확인됐다는 뜻은 아닙니다. 주소가 제공되지 않은 경우 빈 문자열을 보존하며 지어내지 않습니다.
-- ProviderData의 VERIFIED_LIVE/CACHED는 향후 Adapter가 실제 응답을 확인·검사한 뒤 명시해야 합니다. 현재 운영 기본 구현은 해당 데이터를 생성하지 않습니다. DEMO_SIMULATED는 UNVERIFIED만 허용합니다.
+- ProviderData의 VERIFIED_LIVE/CACHED는 실제 공급자 응답을 확인·검사한 뒤에만 명시해야 합니다. 새 장소 Adapter는 고정된 공식 HTTPS URL의 HTTP 200·JSON·전체 후보 검증을 모두 통과한 경우에만 VERIFIED_LIVE를 반환합니다. 루프백 모의 서버 응답은 DEMO_SIMULATED/UNVERIFIED로 고정하며 검증된 실데이터로 승격하지 않습니다. 아직 공식 인증 호출을 실행한 증거는 없습니다.
 - `retrievedAt`은 원 데이터 조회 시각입니다. 결과의 `attemptedAt`과 다르며 캐시를 읽었다고 원 조회 시각을 갱신하거나 LIVE로 승격하면 안 됩니다. 현재 캐시 신선도 판정은 구현하지 않았습니다.
-- 잘못된 모델 값/상태 조합은 IllegalArgumentException입니다. 향후 Adapter 경계에서는 이를 INVALID_DATA 실패로 변환해야 하며, 원본의 잘못된 값을 정상값처럼 보정하면 안 됩니다.
+- 잘못된 모델 값/상태 조합은 IllegalArgumentException입니다. 장소 Adapter는 이를 INVALID_DATA 실패로 변환하며, 원본의 잘못된 값을 정상값처럼 보정하거나 유효하지 않은 후보를 조용히 제외하지 않습니다.
 
 ## 장애 및 ETA 부족
 
@@ -49,7 +51,7 @@
 
 ## 우선 검토한 공식 API
 
-공식 문서 확인일: 2026-11-03. 아래는 **추후 Adapter 검토용**이며 실행 코드에 URL/요청/응답 변환을 구현하지 않았습니다.
+공식 문서 확인일: 2026-11-03. 아래 중 **장소 키워드 검색만 HTTP Adapter로 구현**했습니다. 자동차 경로 규격은 추후 검토용입니다.
 
 ### 카카오 로컬 키워드 장소 검색
 
@@ -58,7 +60,7 @@
 - GET `https://dapi.kakao.com/v2/local/search/keyword.json`
 - 인증은 Authorization 헤더의 KakaoAK 방식과 REST API 키입니다. 실제 키 값은 이 문서에 기록하지 않습니다.
 - 필수 query, 선택 x(경도)/y(위도), radius(0~20,000m), page(1~45), size(1~15). 현재 PlaceSearchQuery는 이 초기 범위를 사용합니다.
-- `documents`의 id/place_name/address_name/road_address_name/x/y를 후보로 검증·변환하는 Adapter가 필요합니다. x는 longitude, y는 latitude이며 String 좌표의 숫자 변환·유한성 검사가 필요합니다.
+- `documents`의 id/place_name/address_name/road_address_name/x/y를 검증·변환합니다. x는 longitude, y는 latitude로 처리합니다. 도로명 주소가 없으면 지번 주소, 둘 다 없으면 빈 문자열을 유지합니다.
 - 검색 응답은 영업/방문 가능 검증으로 취급하지 않습니다. ID는 카카오 로컬 네임스페이스에 보관합니다.
 
 ### 카카오모빌리티 자동차 길찾기
@@ -73,14 +75,28 @@
 
 ## 인증·이용 제한·상업 서비스 적용 전 확인
 
-- 향후 실제 Adapter는 서버 환경변수에서만 비밀 값을 읽도록 합니다. 내부 환경변수 이름은 `TRIPBACK_KAKAO_LOCAL_REST_API_KEY`, `TRIPBACK_KAKAO_MOBILITY_REST_API_KEY`를 사용할 계획이며, 이번에는 읽기조차 하지 않습니다. 앱/DTO/응답/toString/로그/문서/저장소에 비밀 값을 넣지 않습니다. 키 발급·입력은 이번 작업에 필요하지 않습니다.
+- 장소 Adapter는 검색 시 서버 프로세스 환경변수 `TRIPBACK_KAKAO_LOCAL_REST_API_KEY`에서만 인증 값을 읽습니다. `application.properties`, Android, 요청 DTO 또는 별도 REST 파라미터에서 키를 받지 않습니다. Bean 생성 시에는 키 조회·네트워크 호출이 없습니다. 향후 자동차 경로 키 이름은 `TRIPBACK_KAKAO_MOBILITY_REST_API_KEY`이며 아직 읽거나 사용하지 않습니다. 비밀 값은 코드/테스트 파일/앱/DTO/응답/toString/로그/문서/저장소에 넣지 않습니다. 이번 검증에 실제 키는 필요하지 않습니다.
 - [카카오맵 사용 조건](https://developers.kakao.com/docs/ko/kakaomap/common): 앱 활성화와 플랫폼 키 설정을 확인해야 하며, 무료 쿼터 적용 앱 및 초과 사용의 유료 설정 조건이 있습니다.
 - [공식 쿼터](https://developers.kakao.com/docs/ko/getting-started/quota): 확인일 기준 키워드 검색 일간 제공량 100,000건. 실제 앱 적용량·권한·월간 정책은 배포 전에 다시 확인해야 합니다.
 - [카카오모빌리티 공식 가격/쿼터](https://developers.kakaomobility.com/price/): 확인일 기준 일반 자동차 길찾기 일간 10,000건, 무료 초과분은 게시된 유료 정책 대상입니다. 쿼터/가격은 바뀔 수 있어 코드에 요금이나 운영 허용량을 확정하지 않습니다.
 - [공식 오류 안내](https://developers.kakaomobility.com/guide/navi-api/solution.html): 401/403 인증·권한, 429 쿼터/호출 한도, 5xx 공급자 장애를 구분해야 합니다. HTTP 성공만으로 정상 경로·ETA를 보장하면 안 됩니다.
 - 상업 서비스 전에는 [서비스 약관](https://developers.kakao.com/terms/ko/site-terms), [운영 정책](https://developers.kakao.com/terms/ko/site-policies), 위 제품별 정책에서 과금/권한·허용 서비스 범위·데이터 보관/재배포·지도 표시/상표 조건을 검토해야 합니다. 이 문서는 Tripback의 상업적 사용 승인이나 무제한 캐시·재배포 허용을 확인한 문서가 아닙니다.
 
+## 장소 Adapter 운영 설정과 제한
+
+- 서버 프로세스 실행 환경에 `TRIPBACK_KAKAO_LOCAL_REST_API_KEY`를 설정해 사용할 수 있습니다. 실제 값을 채팅·문서·명령 이력·커밋에 남기지 마세요. 현재 작업은 키 발급/입력을 요구하지 않으며 공식 인증 호출도 수행하지 않았습니다.
+- Java 25 HttpClient를 재사용합니다. 연결 타임아웃 3초, 요청 및 전체 본문 수신 제한 5초입니다. 청크 본문이 멈춰도 제한 후 요청을 취소합니다. Spring 컨텍스트 종료 시 HttpClient도 종료합니다.
+- 키워드는 UTF-8 URL 인코딩으로 전송하고 키는 Authorization 헤더에만 둡니다. 애플리케이션 자체 자동 재시도는 없습니다.
+- 운영 URL은 공식 HTTPS 엔드포인트로 고정되어 있으며 환경변수/요청 파라미터로 바꾸지 못합니다. 테스트 전용 생성자는 패키지 내부에서 루프백 HTTP만 허용합니다. 리다이렉트는 따라가지 않고 3xx는 INVALID_DATA로 처리하므로 인증 헤더를 다른 위치로 전달하지 않습니다.
+- 본문은 최대 1MiB입니다. Content-Length 및 실제 수신량을 검사하며, JSON Content-Type이 아니거나 요청하지 않은 압축 응답이면 거부합니다. 오류 응답 본문은 읽어 결과/로그에 옮기지 않습니다.
+- HTTP 401/403, 429, 기타 4xx/5xx는 기존 오류 모델로 분류합니다. 타임아웃은 TIMEOUT, 연결 실패는 CONNECTION_FAILED입니다. HTTP 200의 잘못된 JSON·필드·좌표는 INVALID_DATA입니다.
+- meta의 total_count/pageable_count/is_end와 documents 배열 구조를 검사합니다. 한 페이지 후보 수는 요청 size 이하이어야 합니다. 중복 JSON 키·장소 ID, 후행 JSON 토큰, 누락/공백 ID·이름, 숫자가 아닌 좌표, NaN/무한대·범위 밖 좌표를 거부합니다. 후보 하나라도 유효하지 않으면 전체 FAILED를 반환합니다.
+- NO_RESULTS는 유효한 응답의 **현재 페이지** documents가 빈 경우입니다. 공급자 장애 또는 설정 누락을 뜻하지 않습니다.
+- 이름·주소·좌표 확인은 영업 중·방문 가능·주차 가능 보장이 아닙니다. 모든 후보의 visitStatus는 NOT_VERIFIED입니다. 전화번호 등 불필요한 응답 필드는 수집하지 않습니다.
+- Adapter는 원본 요청/인증 헤더/응답 본문/예외 메시지를 로그나 실패 결과에 기록하지 않습니다. 운영에서도 JDK HttpClient의 헤더/전체 디버그 로깅을 활성화하지 않아야 합니다.
+- 실제 검색 Adapter는 독립 Bean으로만 제공됩니다. 기존 여행 계획 API, Android, NaviHelper 및 자동차 경로/귀가 엔진에는 연결하지 않았습니다.
+
 ## 검증 범위
 
-가짜 장소·좌표·ETA는 테스트 코드에만 존재합니다. 테스트는 모델 검증·상태 분리·출처 보존·기존 엔진 UNKNOWN 유지를 검사하며, 실제 외부 장소/도로 API 성공을 검증하지 않습니다.
+가짜 장소·좌표·ETA는 테스트 코드에만 존재합니다. Adapter 테스트의 인증 문자열은 실행 시 임의 생성하며 실제 카카오 키가 아닙니다. 로컬 HTTP 모의 서버에서 UTF-8 요청/인증 방식, 좌표/주소 매핑, 빈 결과·장애 분리, 타임아웃/응답 크기/리다이렉트 제한, 오류·로그의 인증값 비노출을 검증합니다. 기존 모델·UNKNOWN 유지·여행 API/Health 회귀 테스트도 수행합니다. **공식 카카오 API의 인증된 응답은 아직 검증하지 않았으므로 실제 장소 검색 성공이라고 보고하지 않습니다.**
 기존 여행 일정 API와 Health API 회귀 테스트를 함께 실행합니다. 기존 API 시연 데이터, 귀가시간 엔진, Android/NaviHelper/Gradle/HTML은 변경하지 않습니다.

@@ -1,6 +1,6 @@
 # 장소 검색·자동차 경로 Provider 기반
 
-현재 상태: **카카오 로컬 키워드 검색 및 카카오모빌리티 자동차 길찾기 HTTP Adapter와 Spring 설정을 구현했습니다. 실제 키 없는 로컬 모의 서버 테스트로 검증하며, 공식 카카오모빌리티 API 인증 호출은 수행하지 않았습니다.** 캐시, 영업/방문 가능성 검증은 미구현입니다. 내부 `TripValidationService`가 장소 검색·N+1구간 조회·귀가시간 계산을 연결합니다. `TripPlanService`나 REST API에는 연결하지 않았습니다.
+현재 상태: **카카오 로컬 키워드 검색 및 카카오모빌리티 자동차 길찾기 HTTP Adapter와 Spring 설정을 구현했습니다. 실제 키 없는 로컬 모의 서버 테스트로 검증하며, 공식 카카오모빌리티 API 인증 호출은 수행하지 않았습니다.** 캐시, 영업/방문 가능성 검증은 미구현입니다. 내부 `TripValidationService`가 장소 검색·N+1구간 조회·귀가시간 계산을 연결합니다. `TripPlanService`는 DEMO로 유지하며, 기본 비활성 `/api/v1/trips/validate`가 내부 서비스를 별도로 호출합니다.
 
 기존 DEMO plan API의 `predictedReturnAt`, `travelMinutes`, `isFeasible`, `remainingMarginMin`은 null로 유지합니다. 기존 귀가시간 계산 엔진의 규칙도 변경하지 않았습니다.
 
@@ -49,7 +49,7 @@ Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter�
 - 결과의 출발/목적지가 요청 구간과 다르면 변환을 거부합니다. 현재 자동차 Adapter는 공급자의 도로 스냅 좌표를 사용하지 않고, 도메인 결과에 요청 구간 정체성을 유지합니다.
 - 알려진 ETA의 초→분 변환은 구간별 올림입니다: 0초→0분, 1~60초→1분, 61초→2분. 원래 초는 RoadRouteResult에 남습니다. 임의 ETA 생성이 아니라 기존 분 단위 엔진 입력을 위한 보수적 변환이며 오버플로는 거부합니다.
 - 변환해도 DEMO/CACHED/LIVE 출처와 원 조회 시각은 보존합니다. 테스트 ETA로 수학적 FEASIBLE이 나와도 실제 귀가 가능·실시간 데이터 검증 성공이 아닙니다.
-- 왕복 일정의 호출자는 N개 방문지에 N+1개의 구간(귀가 포함)을 제공해야 합니다. 내부 TripValidationService가 이 N+1구간 오케스트레이션을 수행합니다. REST API 연결은 없습니다.
+- 왕복 일정의 호출자는 N개 방문지에 N+1개의 구간(귀가 포함)을 제공해야 합니다. 내부 TripValidationService가 이 N+1구간 오케스트레이션을 수행합니다. REST 연결은 기본 비활성 `/api/v1/trips/validate`로만 제공합니다.
 
 ## 우선 검토한 공식 API
 
@@ -113,7 +113,7 @@ Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter�
 - FOUND일 때만 ProviderData를 부여합니다. 고정 공식 HTTPS 응답이 검증을 통과한 경우에만 VERIFIED_LIVE/VALIDATED_PROVIDER_DATA입니다. 루프백 모의 응답은 DEMO_SIMULATED/UNVERIFIED입니다. 실제 공식 응답의 성공 여부는 별도 로컬 PowerShell Live 검증 단계에서 확인해야 합니다.
 - 요청 RoadRouteQuery를 그대로 결과에 유지합니다. 응답의 도로 스냅 좌표를 원래 좌표로 바꾸어 넣지 않습니다. 원본 응답 본문·인증 헤더·키·예외 메시지를 실패 결과나 로그로 전달하지 않습니다.
 - 로컬 자동 테스트는 요청 좌표 순서·가짜 인증·미설정·경로 없음·ETA 누락/잘못된 숫자·HTTP 오류·연결 실패·헤더/청크 본문 타임아웃·리다이렉트·응답 크기·출처·RouteLegMapper 올림/UNKNOWN 보존을 검사합니다. 실제 키나 공식 인증 호출은 필요하지 않습니다.
-- ETA는 현재 출발 조건의 추정치이며 미래 여행 시각 예측 또는 실제 귀가 보장이 아닙니다. 내부 TripValidationService에서 기존 귀가 엔진 및 왕복 N+1구간 조회와 연결합니다. TripPlanService/REST API, Android/NaviHelper, AI에는 연결하지 않았습니다. 캐시·미래 출발·차종/유종별 입력·거리 반환 확장은 별도 작업입니다.
+- ETA는 현재 출발 조건의 추정치이며 미래 여행 시각 예측 또는 실제 귀가 보장이 아닙니다. 내부 TripValidationService에서 기존 귀가 엔진 및 왕복 N+1구간 조회와 연결합니다. 기존 DEMO TripPlanService, Android/NaviHelper, AI에는 연결하지 않았습니다. 별도 validate REST API는 기본 비활성으로 제공합니다. 캐시·미래 출발·차종/유종별 입력·거리 반환 확장은 별도 작업입니다.
 
 ### 자동차 Adapter 구현 당시 자동 검증 결과
 
@@ -132,7 +132,7 @@ Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter�
 | TripValidationService | 선택 ID 확인 → 귀가 포함 N+1구간 조회 → RouteLegMapper → 기존 TripFeasibilityService |
 | TripValidationResult | 방문지/구간별 결과와 안전한 오류, 계산 결과, 데이터 출처 범위 및 한계 |
 
-- `TripValidationService`는 생성자 주입을 사용하는 내부 Spring Service입니다. 생성 시 외부 호출이나 키 조회가 없고 새 REST 엔드포인트는 없습니다. 기존 DEMO plan 요청/응답 계약과 계산 엔진 규칙은 유지합니다.
+- `TripValidationService`는 생성자 주입을 사용하는 내부 Spring Service입니다. 생성 시 외부 호출이나 키 조회가 없으며, 별도 Controller가 기본 비활성 REST 엔드포인트로 연결합니다. 기존 DEMO plan 요청/응답 계약과 계산 엔진 규칙은 유지합니다.
 - Visit은 검색어, `ProviderPlaceId("KAKAO_LOCAL", 선택 ID)`, 체류 분을 받습니다. 입력 목록은 불변 복사하며 중복 ID, namespace 오류, 0개/6개 이상 방문지, null, 잘못된 좌표(Wgs84Point), 음수/지원 범위 초과 체류·안전 여유, 역전된 날짜를 거부합니다. `fromIso8601`은 UTC 오프셋 없는 시각을 거부합니다. 이 내부 서비스에는 DEMO REST의 2시간 초과/15·30·45분 제한을 임의 적용하지 않고 기존 엔진 입력 규칙을 따릅니다.
 - 각 검색은 첫 페이지 최대 15개 후보를 요청합니다. FOUND 결과에서 provider와 선택 ID가 정확히 일치하는 후보만 사용하며, 첫 결과를 자동 선택하거나 다음 페이지·다른 검색어로 자동 재시도하지 않습니다. ID가 첫 페이지에 없다는 것은 전체 카카오 데이터에서 장소가 없다는 판정이 아닙니다. 검색 결과 내 중복 ID도 거부합니다. 후보의 좌표/ID/출처 불변식은 기존 모델이 검증하며 영업·방문 가능성은 계속 NOT_VERIFIED입니다.
 - 모든 방문지의 검색 결과를 원래 index와 함께 보존합니다. 한 곳이라도 확인되지 않으면 모든 경로 조회를 보류하고 N+1개의 PLACES_UNRESOLVED 구간 및 null ETA TravelLeg를 유지합니다. 장소를 삭제하거나 대체하거나, 확인된 앞뒤 방문지 사이를 직접 연결하지 않습니다. 계산 엔진은 이 입력을 UNKNOWN으로 반환합니다.
@@ -160,7 +160,7 @@ Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter�
 - 전체 일정에 단일 LIVE 표시를 붙이지 않습니다. `dataModes()`는 장소와 경로 출처의 집합이며 각 ProviderData와 조회 시각을 그대로 보존합니다. `dataCoverage()`는 INCOMPLETE / CONTAINS_DEMO / ALL_PROVIDER_DATA_DECLARED_VALIDATED입니다. DEMO가 하나라도 섞이면 CONTAINS_DEMO이고, 누락/오류가 있으면 INCOMPLETE입니다. 마지막 값도 공급자 데이터의 검증 선언 범위만 뜻하며 LIVE와 CACHED를 구분 없이 LIVE로 승격하지 않습니다. 엔진의 routeDataStatus는 경로만의 상태이므로 전체 일정 검증 여부로 해석하지 않습니다.
 - `notice()`와 결과 모델 문서에 수학적 계산 한계를 명시합니다. FEASIBLE은 제공된 현재 출발 기준 ETA를 이용한 계산이며 실제 귀가 보장이 아닙니다. 미래 여행 날짜 교통·각 방문 후 출발 시점의 교통·출발지 실재/차량 접근성·영업/예약/주차는 검증하지 않습니다. 미래 날짜를 입력해도 미래 교통 검증으로 표시하지 않습니다.
 - 테스트의 장소와 ETA는 모두 DEMO_SIMULATED/UNVERIFIED입니다. LIVE/CACHED 혼합 정책은 실제 장소나 ETA에 가짜 LIVE 라벨을 붙이지 않는 독립 메타데이터 집계 테스트로 확인합니다. 실제 키와 외부 호출 없이 Fake Provider로 실행합니다.
-- 남은 범위: REST/Android/NaviHelper 연결, 출발지 실재 검증, 선택 ID 검색의 페이지 확장, 캐시 신선도 정책, 미래 교통 예측, 영업/방문 가능성, AI 후보 생성, 재계획/승인 및 저장입니다. 이번 통합 서비스를 사용한 실제 공식 API 왕복 검증은 수행하지 않았습니다.
+- 남은 범위: Android/NaviHelper 연결, 출발지 실재 검증, 선택 ID 검색의 페이지 확장, 캐시 신선도 정책, 미래 교통 예측, 영업/방문 가능성, AI 후보 생성, 재계획/승인 및 저장입니다. 이번 통합 서비스를 사용한 실제 공식 API 왕복 검증은 수행하지 않았습니다.
 
 ### 내부 통합 자동 검증 결과
 
@@ -168,3 +168,12 @@ Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter�
 - 총 133건: 성공 131, 실패 0, 오류 0, SKIPPED 2. 신규 서비스 단위 테스트 27건과 Spring 구성 테스트 1건 모두 성공.
 - 기존 DEMO REST/Health/계산 엔진/Adapter 회귀 테스트 통과. 장소·경로 Live 테스트는 실행 플래그와 인증키 환경변수를 빌드 프로세스에서 제거하여 SKIPPED 처리했습니다. 실제 공식 API 호출은 없습니다.
 - `git diff --check` 및 신규 파일 공백 검사 통과. 실행 JAR 생성 확인; 배포 실행이나 실차·에뮬레이터 통합 검증은 수행하지 않았습니다.
+
+## 선택 활성화 REST 연결
+
+- `POST /api/v1/trips/validate`를 추가했습니다. 계약·요청/응답 예시·활성화 방법은 [API 계약](api-contract.md)을 참고하세요.
+- `TRIPBACK_ENABLE_TRIP_VALIDATION_API=true`일 때만 등록되며 기본 상태는 404입니다. 활성화 스위치는 인증이나 rate limit이 아니므로 인증·호출량 제한 없는 공개 배포는 금지합니다.
+- `trip/validationapi/`의 요청 DTO/엄격한 변환 → 기존 TripValidationService → 명시적 응답 DTO 순서로 처리합니다. 내부 계산 규칙·Adapter·기존 DEMO plan·Android는 변경하지 않았습니다.
+- JSON 타입/필수값/좌표/UTC 오프셋/엄격한 출발 이후 마감/15·30·45분 안전 여유/1~5방문/중복 ID/미지원 필드와 입력 시간 오버플로를 외부 호출 전에 거부합니다.
+- Provider 장애는 HTTP 200 UNKNOWN이며 서버 내부 예외는 안전한 HTTP 500으로 분리합니다. 원본 Provider 응답 객체를 직렬화하지 않으며 키/인증 헤더/원본 오류 본문/예외 메시지를 응답·로그에 넣지 않습니다.
+- 서버 시작 시 외부 호출 없음, 자동 재시도 없음, 요청당 검색 최대 5회·경로 최대 6회입니다. 실제 공식 인증 호출과 Android 통합은 별도 검증 단계입니다.

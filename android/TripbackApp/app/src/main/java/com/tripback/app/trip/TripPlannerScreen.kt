@@ -8,6 +8,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import android.content.pm.ApplicationInfo
 import androidx.compose.ui.unit.dp
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -20,6 +22,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun TripPlannerScreen(sdkContent: @Composable () -> Unit) {
+    val debug = LocalContext.current.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     var screen by rememberSaveable { mutableStateOf("INPUT") }
     var input by rememberSaveable { mutableStateOf(TripInput()) }
     var schedule by rememberSaveable { mutableStateOf(TripSchedule()) }
@@ -48,7 +51,10 @@ fun TripPlannerScreen(sdkContent: @Composable () -> Unit) {
                 Button(onClick = { navigate("INPUT") }, enabled = screen != "INPUT") { Text("여행 조건") }
                 Button(onClick = { navigate("SDK") }, enabled = screen != "SDK") { Text("SDK 테스트") }
             }
+            if (debug) Button(onClick = { navigate("VALIDATION") }, enabled = screen != "VALIDATION",
+                modifier = Modifier.padding(horizontal = 16.dp)) { Text("왕복 검증 (개발)") }
             when (screen) {
+                "VALIDATION" -> TripValidationScreen(Modifier.weight(1f))
                 "SDK" -> Box(Modifier.weight(1f)) { sdkContent() }
                 "RESULTS" -> results?.let { current ->
                     TripPlanResultsScreen(current, onSelect = { results = current.select(it) },

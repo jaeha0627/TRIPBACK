@@ -44,13 +44,25 @@ fun TripPlannerScreen(sdkContent: @Composable () -> Unit) {
 
     fun navigate(target: String) { invalidateRequest(); screen = target }
 
+    if (debug && screen == "RECOMMENDATION_HTTP") {
+        val http = remember { com.tripback.app.trip.recommendation.HttpRecommendationRepository() }
+        com.tripback.app.trip.recommendation.RecommendationFlow(onExit = { navigate("INPUT") }, repository = http)
+        return
+    }
+    if (screen == "RECOMMENDATION") {
+        com.tripback.app.trip.recommendation.RecommendationFlow(onExit = { navigate("INPUT") })
+        return
+    }
+
     BackHandler(enabled = screen != "INPUT") { navigate("INPUT") }
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(Modifier.padding(innerPadding)) {
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { navigate("RECOMMENDATION") }) { Text("AI 추천 화면 시연") }
                 Button(onClick = { navigate("INPUT") }, enabled = screen != "INPUT") { Text("여행 조건") }
                 Button(onClick = { navigate("SDK") }, enabled = screen != "SDK") { Text("SDK 테스트") }
             }
+            if (debug) Button(onClick = { navigate("RECOMMENDATION_HTTP") }) { Text("AI 추천 HTTP (개발)") }
             if (debug) Button(onClick = { navigate("VALIDATION") }, enabled = screen != "VALIDATION",
                 modifier = Modifier.padding(horizontal = 16.dp)) { Text("왕복 검증 (개발)") }
             when (screen) {

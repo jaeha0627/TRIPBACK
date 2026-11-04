@@ -1,6 +1,6 @@
-# Tripback 앱↔서버 API 계약 (v0.3, 선택 활성화 검증 API)
+# Tripback 앱↔서버 API 계약 (v0.4, 선택 활성화 장소 후보 검색)
 
-현재 구현: `GET /api/v1/health`, DEMO 전용 `POST /api/v1/trips/plan`, 기본 비활성 `POST /api/v1/trips/validate`, 기존 `GET /actuator/health`.
+현재 구현: `GET /api/v1/health`, DEMO 전용 `POST /api/v1/trips/plan`, 기본 비활성 `POST /api/v1/trips/validate`, 기본 비활성 `POST /api/v1/places/search`, 기존 `GET /actuator/health`.
 장소 검색·현재 자동차 ETA·귀가시간 계산을 연결한 별도 검증 API를 제공합니다. Android 연결, AI, 저장 및 재계획은 미구현입니다. 기존 plan은 실제 장소·경로 검증을 수행하지 않습니다.
 
 ## 기본 원칙
@@ -313,3 +313,115 @@ $env:TRIPBACK_ENABLE_TRIP_VALIDATION_API = 'true'
 - 전체 164건: 성공 162, 실패 0, 오류 0, SKIPPED 2. 기존 DEMO API 회귀 테스트 통과.
 - 장소·경로 Live 테스트는 활성화 플래그와 인증키를 빌드 프로세스에서 제거해 SKIPPED 처리했습니다. 실제 외부 카카오 API 호출 없음.
 - `git diff --check` 및 신규 파일 공백 검사 통과. 실제 인증 호출·공개 배포·Android/실차 통합은 검증하지 않았습니다.
+
+## POST /api/v1/places/search — 기본 비활성 장소 후보 검색 API
+
+기존 PlaceSearchProvider와 KakaoPlaceSearchAdapter를 재사용하는 후보 검색 API입니다. 별도 카카오 HTTP 연동을 만들지 않습니다. 기존 DEMO plan·여행 validate 계약과 내부 계산 규칙은 유지합니다. LLM 호출이나 AI 여행 코스 추천 결과는 제공하지 않습니다.
+
+### 활성화와 호출 범위
+
+- 서버 환경변수 `TRIPBACK_ENABLE_PLACE_SEARCH_API=true`일 때만 Controller를 등록합니다. 기본/false 상태의 경로는 HTTP 404입니다. Spring 조건부 속성으로 평가하며 변경 후 서버 재시작이 필요합니다. 여행 검증 API 활성화 스위치와 독립적입니다.
+- 키는 기존 Adapter가 서버 프로세스 환경변수 `TRIPBACK_KAKAO_LOCAL_REST_API_KEY`에서만 읽습니다. 클라이언트 요청에 키를 받지 않으며 코드·앱·문서·로그에 실제 값을 넣지 않습니다.
+- 유효 요청당 Provider.search()를 한 번 호출합니다. page=1, size=15로 고정하고 center/radius는 전달하지 않습니다. 자동 재시도나 다음 페이지 조회는 없습니다. 서버 시작 시 키 조회·검색 호출이 없습니다.
+- 인증·권한 검사·rate limit을 아직 제공하지 않으므로 외부 공개 배포는 금지합니다. 로컬/비공개 개발 환경에서만 활성화하고 공개 노출 전에 별도로 구현해야 합니다.
+
+```powershell
+$env:TRIPBACK_ENABLE_PLACE_SEARCH_API = 'true'
+# backend 디렉터리에서 실행. 실제 키 값은 명령/로그에 기록하지 않습니다.
+.\gradlew.bat bootRun
+```
+
+### 요청
+
+`Content-Type: application/json` 또는 `application/json; charset=UTF-8`:
+
+```json
+{"keyword":"독립기념관 주차장"}
+```
+
+- keyword는 필수 JSON 문자열입니다. null/빈 문자열/공백만/앞뒤 공백/제어문자/잘못된 유니코드를 거부하며 최대 200자(Java UTF-16 길이)입니다. 한글은 UTF-8로 전달합니다.
+- 다른 필드는 허용하지 않습니다. page, size, selectedId, 제약 조건, API 키 등을 추가해도 무시하지 않고 400입니다. 숫자/불리언/배열/객체를 문자열로 강제 변환하지 않습니다.
+- 중복 JSON 키·후행 JSON·잘못된 JSON·잘못된 UTF-8을 거부합니다. UTF-8 이외의 명시적 charset은 415입니다.
+- 본문 최대 4,096바이트입니다. Content-Length가 크면 읽기 전에 거부하고, 길이가 없거나 청크 전송이어도 최대 4,097바이트까지만 읽어 초과를 판정합니다. 초과는 413이며 Provider를 호출하지 않습니다. 프록시의 연결/본문 수신 시간 제한과 전체 서비스 호출량 제한은 별도 운영 설정입니다.
+
+### 응답
+
+유효한 요청의 Provider 결과는 HTTP 200으로 반환하며 status를 반드시 확인합니다.
+
+| status | 의미 |
+|---|---|
+| FOUND | 현재 페이지 후보 있음, 최대 15개. 자동 선택한 장소가 아님 |
+| NO_RESULTS | 정상 검색했으나 현재 페이지 후보가 없음. 공급자 장애와 구분 |
+| UNAVAILABLE | 인증키 미설정 등 Provider 사용 불가 |
+| FAILED | 인증/연결/타임아웃/호출 제한/원본 응답 검증 실패 또는 잘못된 Provider 결과 |
+
+| 필드 | 계약 |
+|---|---|
+| provider | KAKAO_LOCAL |
+| page / size | 항상 1 / 15. size는 페이지 상한이며 실제 후보 수는 candidates 길이 |
+| candidates | 공급자 순서를 유지한 후보 배열. 실패/빈 결과에서는 빈 배열 |
+| candidates[].index | 0부터 시작하는 응답 배열 index. 순위 추천 또는 선택 상태가 아님 |
+| candidates[].id | provider와 원문 value. 선행 0을 보존하는 불투명 문자열이며 Pleos POI ID가 아님 |
+| candidates[].name / address | 공급자가 반환한 이름/주소. 주소 미제공 시 빈 문자열 유지 |
+| candidates[].coordinates | WGS84 latitude / longitude 숫자. 유한값 및 범위 검증 |
+| candidates[].data | provider, dataMode, verification, retrievedAt를 그대로 보존 |
+| candidates[].visitStatus | 항상 NOT_VERIFIED. 영업·예약·주차·차량 접근성·방문 가능성 미확인 |
+| dataModes | 반환 후보의 출처 집합을 정렬한 배열. 빈 결과/실패는 빈 배열 |
+| attemptedAt | Provider가 반환한 요청 시각. 예외/잘못된 결과라면 서비스가 실제 조회를 시도한 시각 |
+| reason | 정상/빈 결과 null, 미설정 PROVIDER_UNAVAILABLE, Provider FAILED는 PROVIDER_FAILED |
+| failure | 안전한 code와 선택 httpStatus만 포함, 정상/빈 결과 null |
+| notice | 후보 검색 한계·자동 선택 없음·방문 가능성 미검증·AI 코스 추천 아님 고지 |
+
+- VERIFIED_LIVE / VERIFIED_CACHED / DEMO_SIMULATED를 개별 후보에서 유지합니다. CACHED의 retrievedAt을 갱신하거나 LIVE로 승격하지 않습니다. 최상위에 일정 전체 LIVE나 귀가 가능성 판정을 붙이지 않습니다.
+- 중복 후보 ID, 잘못된 namespace/좌표, 15개 초과, null 응답을 INVALID_PROVIDER_RESPONSE / failure.code=INVALID_DATA로 반환합니다. 일부 후보를 조용히 삭제하거나 15개로 잘라서 성공 처리하지 않습니다.
+- Provider가 예외를 던지면 FAILED / reason=PROVIDER_EXCEPTION / failure=null입니다. 예외 메시지로 인증·연결 원인을 추측하지 않습니다. Provider가 안전한 ProviderFailure를 반환했다면 AUTHENTICATION_FAILED, CONNECTION_FAILED, TIMEOUT, RATE_LIMITED, HTTP_ERROR, INVALID_DATA 등을 그대로 보존합니다.
+- 어떤 실패도 NO_RESULTS나 DEMO 후보로 대체하지 않습니다. 원본 Provider 객체·요청 URL·인증 헤더·오류 본문·예외 메시지를 직렬화하거나 로그로 출력하지 않습니다.
+
+아래는 **설명용 DEMO 후보** 응답입니다. 실제 카카오 API 인증 호출의 증거가 아닙니다.
+
+```json
+{
+  "provider": "KAKAO_LOCAL",
+  "status": "FOUND",
+  "page": 1,
+  "size": 15,
+  "candidates": [{
+    "index": 0,
+    "id": {"provider": "KAKAO_LOCAL", "value": "fixture-001"},
+    "name": "가상 후보",
+    "address": "가상 주소",
+    "coordinates": {"latitude": 36.75, "longitude": 127.25},
+    "data": {
+      "provider": "KAKAO_LOCAL",
+      "dataMode": "DEMO_SIMULATED",
+      "verification": "UNVERIFIED",
+      "retrievedAt": "2026-11-04T00:00:00Z"
+    },
+    "visitStatus": "NOT_VERIFIED"
+  }],
+  "dataModes": ["DEMO_SIMULATED"],
+  "attemptedAt": "2026-11-04T00:00:00Z",
+  "reason": null,
+  "failure": null,
+  "notice": "CANDIDATES_ONLY; NO_AUTOMATIC_SELECTION; VISITABILITY_NOT_VERIFIED; KAKAO_IDS_ARE_NOT_PLEOS_POI_IDS; NOT_AI_ITINERARY_RECOMMENDATIONS"
+}
+```
+
+키가 없는 경우에는 status=UNAVAILABLE, candidates=[], dataModes=[], reason=PROVIDER_UNAVAILABLE, failure={"code":"NOT_CONFIGURED","httpStatus":null}입니다. NO_RESULTS는 candidates=[], reason=null, failure=null이므로 구분할 수 있습니다.
+
+### HTTP 오류 및 남은 범위
+
+- 400: `{"code":"INVALID_REQUEST"}`, 잘못된 입력/읽기 실패. Provider 호출 없음.
+- 404: 기본 비활성 또는 경로 미등록.
+- 413: `{"code":"REQUEST_TOO_LARGE"}`, 본문 바이트 상한 초과. Provider 호출 없음.
+- 415: 지원하지 않는 Content-Type 또는 charset. Controller의 charset 거부는 `{"code":"UNSUPPORTED_CHARSET"}`이며 매핑 이전 오류는 Spring 기본 처리입니다.
+- 500: 예상하지 못한 서버 내부 예외, `{"code":"INTERNAL_ERROR"}`. Provider의 정상 FAILED 결과와 구분합니다.
+- 아직 없는 기능: 검색 페이지 확장·지역/반경 필터·선택 확정·캐시 정책·영업/주차 검증·LLM/AI 추천·후보의 여행 코스 자동 연결·운영 인증/호출량 제한. Android/NaviHelper 연결은 이번 작업 범위가 아닙니다.
+
+### 장소 후보 API 자동 검증 결과 (2026-11-04)
+
+- Java 25.0.3에서 backend의 `.\gradlew.bat test bootJar` 성공. 실행 JAR 생성 확인.
+- 신규 25건: REST 21건, 기본 비활성 1건, 출처/좌표/예외 안전성 3건 모두 성공.
+- 전체 189건: 성공 187, 실패 0, 오류 0, SKIPPED 2. 기존 DEMO·여행 검증 API 회귀 테스트 통과.
+- 장소/경로 Live 테스트의 키와 실행 플래그를 빌드 프로세스에서 제거해 SKIPPED 처리했습니다. 실제 카카오 API 호출은 없습니다.
+- `git diff --check` 및 신규 파일 공백 검사 통과. 실제 인증 검색·공개 배포·Android 연동은 이번 검증 범위에 포함하지 않습니다.

@@ -177,3 +177,13 @@ Spring에서 사용하는 PlaceSearchProvider는 이제 KakaoPlaceSearchAdapter�
 - JSON 타입/필수값/좌표/UTC 오프셋/엄격한 출발 이후 마감/15·30·45분 안전 여유/1~5방문/중복 ID/미지원 필드와 입력 시간 오버플로를 외부 호출 전에 거부합니다.
 - Provider 장애는 HTTP 200 UNKNOWN이며 서버 내부 예외는 안전한 HTTP 500으로 분리합니다. 원본 Provider 응답 객체를 직렬화하지 않으며 키/인증 헤더/원본 오류 본문/예외 메시지를 응답·로그에 넣지 않습니다.
 - 서버 시작 시 외부 호출 없음, 자동 재시도 없음, 요청당 검색 최대 5회·경로 최대 6회입니다. 실제 공식 인증 호출과 Android 통합은 별도 검증 단계입니다.
+
+## 장소 후보 검색 REST 연결 (2026-11-04)
+
+- `POST /api/v1/places/search`를 추가했습니다. 요청은 keyword 하나이며 기존 PlaceSearchProvider/KakaoPlaceSearchAdapter를 재사용합니다. Provider 검색은 page=1, size=15로 요청당 1회이며 HTTP 클라이언트를 중복 구현하지 않았습니다.
+- `TRIPBACK_ENABLE_PLACE_SEARCH_API=true`일 때만 등록합니다. 기본은 404이고 시작 시 외부 호출이 없습니다. 인증·rate limit 없는 외부 공개 배포는 금지합니다. 키는 기존 서버 환경변수만 사용합니다.
+- `backend/src/main/java/com/tripback/backend/places/`에 Controller, 엄격한 요청 DTO, Provider 호출/결과 검사 서비스, 명시적 응답 DTO를 추가했습니다. [API 계약](api-contract.md)에 JSON 및 오류 계약을 기록했습니다.
+- 요청은 최대 4KiB까지 스트림 수준에서 제한하며 잘못된 타입/문자열/UTF-8/중복 키/추가 필드를 외부 호출 전에 거부합니다. 정상/빈 결과/Provider 미설정/실패는 FOUND/NO_RESULTS/UNAVAILABLE/FAILED로 구분합니다.
+- 후보 원문 ID·이름·주소·WGS84 좌표·출처·조회 시각을 유지하고 visitStatus는 NOT_VERIFIED입니다. 공급자 순서를 유지할 뿐 첫 후보를 선택하거나 코스에 자동 삽입하지 않습니다. 잘못된 응답은 전체 실패이며 후보를 조용히 삭제하지 않습니다.
+- 실제 공급자 응답을 검증한 경우에만 기존 Adapter가 LIVE를 선언합니다. API는 이 라벨을 보존하며 CACHED/DEMO를 승격하지 않습니다. 테스트의 가상 후보는 DEMO이고 LIVE/CACHED는 독립 메타데이터 매핑 테스트에서만 검사합니다.
+- 기존 DEMO/여행 검증 API·TripValidationService·계산 엔진·Adapter·Android/NaviHelper는 수정하지 않았습니다. LLM 호출/AI 코스 추천/실제 방문 가능성 검증은 구현하지 않았습니다.

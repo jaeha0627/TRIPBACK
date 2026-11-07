@@ -83,7 +83,7 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
                     RecommendationPage.DETAIL -> DetailPage(state,onSelect=session::select,onBack=session::results)
                     RecommendationPage.JOURNEY -> journey?.let { current ->
                         com.tripback.app.trip.progress.JourneyScreen(current,session::finishDemo) {
-                            com.tripback.app.trip.replan.JourneyReplanDebug(current,state.request,state.raw,state.selectedPlanId)
+                            com.tripback.app.trip.replan.JourneyReplanDebug(current,state.request,state.raw,state.selectedPlanId, repo is HttpRecommendationRepository)
                         }
                     }
                     RecommendationPage.READY -> ReadyPage(state,capability,observation,departure,onDemo={session.beginDemo()},onApprove={session.approveDeparture(it,false)},onBack=session::back,onEdit=session::input)

@@ -15,6 +15,27 @@ import java.time.*
 class ReplanDebugPanelTest {
     @get:Rule val compose = createComposeRule()
     private val at = Instant.parse("2026-11-07T01:00:00Z")
+    @Test fun httpRegistrationRequiresCostAcknowledgementAndOneExplicitApproval() {
+        var registrations = 0
+        var current by mutableStateOf(view())
+        compose.setContent { MaterialTheme {
+            ReplanDebugPanel(current, {}, {
+                registrations++
+                current = current.copy(canRegister = false, requestState = ReplanRequestState(ReplanRequestPhase.LOADING))
+            }, {}, {}, {}, ReplanUiScenario.NORMAL, {}, useHttp = true)
+        } }
+        compose.runOnIdle { assertEquals(0, registrations) }
+        compose.onNodeWithTag("previewOnly").assertTextContains("CLIENT_REPORTED_NOT_VERIFIED")
+        compose.onNodeWithTag("httpObservationWarning").assertExists()
+        compose.onNodeWithTag("scenarioNORMAL").assertDoesNotExist()
+        compose.onNodeWithTag("registerReplan").performScrollTo().performClick()
+        compose.onNodeWithTag("submitFakeRegistration").assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(0, registrations) }
+        compose.onNodeWithTag("confirmFakeRegistration").performClick()
+        compose.onNodeWithTag("submitFakeRegistration").performClick()
+        compose.onNodeWithTag("registerReplan").performScrollTo().assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(1, registrations) }
+    }
     private fun view() = ReplanDebugView("가상 선택 코스", "가상 체류 공간", JourneyPhase.STAYING,
         30, 600, 30, at.plusSeconds(10800).atOffset(ZoneOffset.UTC), 30, null,
         ReplanRequestState(), true, false, listOf("가상 체류 공간" to 30L, "가상 휴식 공간" to 30L), 0)

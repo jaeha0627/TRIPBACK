@@ -11,6 +11,32 @@ import java.time.*
 import kotlin.coroutines.*
 
 class ReplanDebugControllerTest {
+    @Test fun httpControllerEntryAndUnapprovedActionsNeverPost() {
+        ReplanFixtures.Server().use { server ->
+            Context(repository = server.client()).use { c ->
+                val original = c.journey.snapshot()
+                repeat(3) { assertTrue(c.controller.view().canRegister) }
+                assertFalse(c.controller.register(false))
+                assertFalse(c.controller.preview())
+                c.controller.stop(); c.controller.dismiss()
+                assertEquals(0, server.registrations.get())
+                assertEquals(0, server.previews.get())
+                assertEquals(original, c.journey.snapshot())
+            }
+        }
+    }
+    @Test fun httpControllerAlsoRejectsDemoBeforeAnyPost() {
+        ReplanFixtures.Server().use { server ->
+            val request = ReplanFixtures.request.copy(mustVisitPlaceIds = emptyList())
+            val raw = RecommendationFixtures.response(request, FakeScenario.ONE)
+            val id = RecommendationJson.response(raw, request).alternatives.first().planId
+            Context(raw, request, suppliedId = id, repository = server.client()).use { c ->
+                assertFalse(c.controller.view().canRegister)
+                assertFalse(c.controller.register(true))
+                assertEquals(0, server.registrations.get())
+            }
+        }
+    }
     private class Time : Clock(), JourneyClock {
         var at = ReplanFixtures.now.minusSeconds(600)
         var mono = 100000L

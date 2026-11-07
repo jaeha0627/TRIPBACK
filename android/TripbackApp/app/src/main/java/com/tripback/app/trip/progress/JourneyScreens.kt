@@ -50,7 +50,7 @@ private fun time(value: Instant?): String = value?.atZone(ZoneId.of("Asia/Seoul"
 @Composable private fun JourneyAction(label: String, tag: String, enabled: Boolean = true, action: ()->Unit) {
     Button(onClick=action,enabled=enabled,shape=androidx.compose.ui.graphics.RectangleShape,colors=ButtonDefaults.buttonColors(containerColor=JourneyNavy),modifier=Modifier.heightIn(min=48.dp).testTag(tag)) { Text(label) }
 }
-@Composable fun JourneyScreen(journey: TripJourney, onBack: ()->Unit) {
+@Composable fun JourneyScreen(journey: TripJourney, onBack: ()->Unit, debugContent: @Composable ()->Unit = {}) {
     val s by journey.state.collectAsState()
     var tick by remember { mutableLongStateOf(0) }
     // One disposable UI ticker; the model stores anchors, never a running countdown job.
@@ -118,6 +118,7 @@ private fun time(value: Instant?): String = value?.atZone(ZoneId.of("Asia/Seoul"
                 JourneyAction("추천 일정으로 돌아가기","journeyBack",action=onBack)
             }
         }
+        debugContent()
         HorizontalDivider()
         Text("확정 일정 · 필수 방문지는 동의 없이 제외하지 않습니다.",color=JourneyTeal)
         journey.plan.orderedVisits.forEachIndexed {i,v ->

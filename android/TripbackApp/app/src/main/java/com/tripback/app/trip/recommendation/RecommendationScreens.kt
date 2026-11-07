@@ -81,7 +81,11 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
                     RecommendationPage.LOADING -> LoadingPage(form,onCancel=session::cancel)
                     RecommendationPage.RESULTS -> ResultsPage(state,onDetail=session::detail,onEdit=session::input)
                     RecommendationPage.DETAIL -> DetailPage(state,onSelect=session::select,onBack=session::results)
-                    RecommendationPage.JOURNEY -> journey?.let { com.tripback.app.trip.progress.JourneyScreen(it,session::finishDemo) }
+                    RecommendationPage.JOURNEY -> journey?.let { current ->
+                        com.tripback.app.trip.progress.JourneyScreen(current,session::finishDemo) {
+                            com.tripback.app.trip.replan.JourneyReplanDebug(current,state.request,state.raw,state.selectedPlanId)
+                        }
+                    }
                     RecommendationPage.READY -> ReadyPage(state,capability,observation,departure,onDemo={session.beginDemo()},onApprove={session.approveDeparture(it,false)},onBack=session::back,onEdit=session::input)
                 }
             }

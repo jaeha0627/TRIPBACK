@@ -548,3 +548,132 @@ $env:TRIPBACK_ENABLE_PLACE_SEARCH_API = 'true'
 - 전체 244건: 성공 242, 실패 0, 오류 0, SKIPPED 2. 기존 API/Provider/계산 엔진 회귀 통과.
 - Fake 모델 및 루프백 OpenAI 모의 HTTP만 사용했으며 실제 OpenAI/카카오 API 호출은 없습니다. 기존 Live 테스트 2건은 키/플래그를 제거하여 SKIPPED입니다.
 - `git diff --check` 및 신규 파일 공백 검사 통과. 실제 모델 계정/유료 통합 검증은 별도 단계입니다.
+
+## v0.5 추가 초안 — POST /api/v1/trips/replan-preview (개발용 Preview)
+
+기존 v0.5 요청/응답 JSON과 `/plan`, `/validate`, `/recommend` 동작은 유지한다. 아래는 새 선택 활성화 기능이다. 승인 API, DB, 영구 여행 세션, 실제 위치/주행 상태 확정, 내비게이션 전송은 구현하지 않는다.
+
+### 활성화와 신뢰 경계
+
+- `TRIPBACK_ENABLE_REPLAN_PREVIEW_API=true`일 때만 신규 Controller와 임시 저장소를 등록한다. 기본은 404이다. `/validate`에서 참조를 발급하려면 기존 `TRIPBACK_ENABLE_TRIP_VALIDATION_API=true`도 필요하다.
+- Preview와 참조 발급은 loopback 요청만 허용한다. 인증/소유권 검증/rate limit은 없다. 참조는 사용자 인증을 대체하지 않으며 운영용으로 안전하다는 의미가 아니다. 공개 프록시로 노출하지 않는다. X-Forwarded-For로 loopback 제한을 우회하지 않는다.
+- 서버 내부 `TripValidationResult`의 FEASIBLE, 장소 ID/좌표 연결, 모든 왕복 경로와 검증된 출처를 확인하고 순수 엔진 재계산 결과까지 대조한 경우에만 `ValidatedReplanPlan`을 등록한다. 클라이언트가 ETA/출처/방문 순서를 제출해 등록하는 엔드포인트는 없다.
+- 모든 검증은 Provider 데이터 수준이며 실제 방문 가능성·실제 위치·실제 귀가를 인증하지 않는다. 관측시각·체류 경과시간·현재 방문지는 클라이언트 보고 값이며 응답은 `CLIENT_REPORTED_NOT_VERIFIED`를 명시한다.
+- 기존 `/recommend`의 `ai-proposal-1`은 저장된 여행 참조가 아니다. 이번 참조 발급 경로는 `/validate`로 한정한다. 추천 결과를 사용할 때에는 원래 귀가 지점과 선택한 방문 순서/ID/체류시간을 기존 `/validate` 계약으로 검증해야 한다. 이 검증은 기존 Provider 호출을 수행할 수 있지만 이후 Preview는 추가 조회를 수행하지 않는다. 추천 필수 방문지 정보가 손실되지 않도록 등록된 모든 방문지를 보존 대상으로 취급한다.
+
+### 서버 소유 참조 발급: 기존 /validate 선택 헤더
+
+기존 검증 요청 JSON에 필드를 추가하지 않고 `X-Tripback-Register-Replan: true` 헤더로 명시적으로 요청한다. 헤더가 없으면 참조를 생성하지 않는다. 기존 검증 응답 JSON은 그대로다.
+
+등록에 성공한 HTTP 200 응답에 다음 헤더가 추가된다.
+
+```http
+X-Tripback-Plan-Registration: REGISTERED
+X-Tripback-Plan-Ref: <서버가 생성한 43자 base64url 참조>
+X-Tripback-Plan-Revision: 1
+X-Tripback-Plan-Expires-At: 2026-11-07T01:30:00Z
+Cache-Control: no-store
+```
+
+- 참조는 SecureRandom 32바이트(256비트)이며 순차 ID나 클라이언트 제공 ID가 아니다. 로그/공유 자료에 실제 참조를 기록하지 않는다.
+- TTL은 발급부터 30분으로 고정하며 Preview를 반복해도 연장되지 않는다. 프로세스당 최대 256개, 동기화된 등록/조회로 용량을 제한한다. 꽉 찬 경우 활성 계획을 임의로 제거하지 않는다.
+- 만료는 조회/등록 시 정리하며 재시작하면 모두 소멸한다. 미존재·만료·재시작 후 참조는 동일하게 `404 PLAN_NOT_FOUND_OR_EXPIRED`를 반환한다.
+- `X-Tripback-Plan-Registration`은 `REGISTERED`, `NOT_ELIGIBLE`(DEMO/불완전/불가/불일치 검증), `CAPACITY_EXCEEDED`, `DISABLED` 중 하나다. 마지막 세 경우에는 계획 참조가 없다. 기존 검증 결과 JSON/상태는 유지된다. 비-loopback 참조 발급 요청은 활성화 상태에서 외부 Provider 호출 전에 403으로 거절한다.
+- revision은 불변 snapshot의 `1`이다. 이번 단계에서는 수정/승인/삭제/갱신 API가 없다. 같은 참조의 모든 Preview는 최초 계획을 기준으로 한다.
+
+### Preview 요청
+
+```json
+{
+  "planRef": "<X-Tripback-Plan-Ref 헤더 값>",
+  "revision": 1,
+  "currentVisitIndex": 0,
+  "phase": "STAYING",
+  "observedAt": "2026-11-07T10:00:00+09:00",
+  "elapsedStaySeconds": 600,
+  "requestedTotalStayMinutes": 50
+}
+```
+
+- 현재 방문지의 총 계획 체류시간을 변경한다. 추가 체류시간이 아니다. 방문지 인덱스는 0부터 시작하며 등록된 순서를 따른다. 다른 진행 단계는 지원하지 않는다.
+- 입력은 UTF-8 JSON, 최대 8192바이트다. 중복 키·알 수 없는 필드·문자열 숫자·소수 duration·누락/null·후행 JSON은 거절한다. ETA/출처/방문 순서/귀가 지점을 입력받지 않는다.
+- HTTP 입력의 총 체류시간은 0..1440분, 경과시간은 0..604800초다. 총 체류시간이 관측 경과시간보다 짧으면 오류다. 서비스의 순수 계산 모델은 별도 내부 계약을 유지한다.
+- 관측시각에는 UTC offset이 필요하다. 서버 수신시각보다 미래이거나 60초보다 오래된 관측은 거절한다. 최초 여행 출발보다 앞선 관측 또는 출발 이후 경과보다 긴 체류도 거절한다. 이 검사는 실제 위치/진행을 인증하지 않는다.
+- 서버 수신시각을 계산 기준으로 삼고 관측 이후 지난 정수 초를 체류 경과에 반영한다. 그 사이 요청한 총 체류시간을 초과한 경우도 명시적으로 거절한다. 과거 관측시각으로 ETA를 최신으로 위장할 수 없다.
+
+### Preview 응답
+
+정상 계산은 HTTP 200이다. FEASIBLE은 등록된 ETA와 보고된 체류 상태를 전제로 한 수학적 결과이며 실제 귀가 보장이 아니다. 아래는 오프라인 Fake 검증 테스트의 발췌 예시다(실제 장소/교통 기록 아님).
+
+```json
+{
+  "status": "PREVIEW_ONLY",
+  "baseRevision": 1,
+  "planExpiresAt": "2026-11-07T01:30:00Z",
+  "calculatedAt": "2026-11-07T01:00:00Z",
+  "progressVerification": "CLIENT_REPORTED_NOT_VERIFIED",
+  "currentVisitIndex": 0,
+  "safetyBufferMinutes": 30,
+  "returnDeadline": "2026-11-07T04:00:00Z",
+  "before": {
+    "feasibility": "FEASIBLE",
+    "arithmeticFeasibility": "FEASIBLE",
+    "predictedReturnAt": "2026-11-07T02:00:00Z",
+    "remainingMarginSeconds": 7200,
+    "remainingMarginMinutes": 120,
+    "returnDeadlineMet": true,
+    "safetyBufferSatisfied": true,
+    "currentRemainingStayMinutes": 20
+  },
+  "after": {
+    "feasibility": "FEASIBLE",
+    "arithmeticFeasibility": "FEASIBLE",
+    "predictedReturnAt": "2026-11-07T02:20:00Z",
+    "remainingMarginSeconds": 6000,
+    "remainingMarginMinutes": 100,
+    "returnDeadlineMet": true,
+    "safetyBufferSatisfied": true,
+    "currentRemainingStayMinutes": 40
+  }
+}
+```
+
+실제 응답에는 `originalHome`, `orderedVisits`, `requiredVisits`, `notices`도 포함된다. before/after 각각에 `remainingLegs`(originalLegIndex/minutes/source/dataMode/verification/retrievedAt/cached)와 `reasons`가 포함된다. 실제 계획 참조 자체는 응답 본문에 반복하지 않는다.
+
+- 현재 방문지의 도착 전 구간은 제외하고 남은 체류·이동·최종 귀가 구간을 각각 한 번 포함한다. 현재까지 경과한 체류시간을 다시 더하지 않는다. 남은 체류 초는 분으로 올림하며 기존 구간별 ETA 올림 규칙과 순수 엔진을 재사용한다.
+- 동일한 ETA 가정에서는 총 30분/경과 10분을 총 50분으로 바꾸면 귀가 예상은 20분 늦어진다.
+- 재사용 ETA는 `VERIFIED_CACHED`로 표시하고 원래 출처·조회시각을 보존한다. 서버 시각 기준 15분을 초과하거나 미래 조회시각/미검증/누락이면 UNKNOWN이다. `arithmeticFeasibility`는 가정 계산을 별도로 표시한다. 누락 시 귀가시각/여유는 null이다.
+- 등록은 완전한 검증 계획만 허용하므로 정적 snapshot의 ETA 누락은 원칙적으로 참조 발급 단계에서 차단된다. 순수 엔진의 누락/미검증 방어도 유지한다.
+- 유효한 ETA에서 이미 지난 마감은 입력 오류가 아니라 INFEASIBLE이다. 마감 충족과 안전 버퍼 충족을 따로 표시한다.
+- Preview는 일정/순서/필수 방문지/귀가 지점/체류시간/revision을 변경하지 않는다. AI·장소·도로 Provider 조회, 자동 재시도, 승인, 내비 요청이 없다. 응답/오류는 `Cache-Control: no-store`다.
+
+### 오류 규약
+
+응답은 입력이나 예외 원문 없이 `{"code":"..."}` 형식이다.
+
+| HTTP | code | 의미 |
+|---|---|---|
+| 400 | INVALID_REQUEST | JSON/자료형/범위/단계/날짜/알 수 없는 필드 오류 |
+| 400 | INVALID_CURRENT_VISIT | 계획에 없는 방문지 인덱스 |
+| 400 | INVALID_OBSERVATION_TIME | 미래 또는 60초보다 오래된 관측 |
+| 400 | INVALID_STAY_OBSERVATION | 출발시각과 체류 관측 모순 |
+| 400 | TOTAL_STAY_BELOW_ELAPSED | 요청 총 체류가 계산 기준 경과시간보다 짧음 |
+| 400 | CALCULATION_OUT_OF_RANGE | 합산 또는 시각 계산 범위 초과 |
+| 403 | LOCAL_DEVELOPMENT_ONLY | 비-loopback 요청 |
+| 404 | PLAN_NOT_FOUND_OR_EXPIRED | 미존재/만료/재시작으로 사라진 참조 |
+| 409 | PLAN_REVISION_MISMATCH | 기준 revision 불일치 |
+| 413 | REQUEST_TOO_LARGE | 8192바이트 초과 |
+| 415 | UNSUPPORTED_CHARSET | UTF-8 이외 charset |
+| 500 | INTERNAL_ERROR | 예외 원문을 숨기는 서버 오류 |
+
+기본 비활성 경로의 404 및 Spring의 잘못된 Content-Type/메서드 오류는 기존 프레임워크 처리를 따른다. 오류·실패·취소로도 원본 snapshot은 수정하지 않는다.
+
+### 현재 검증 범위
+
+- Fake Provider만 사용하는 서버 검증 → `/validate` 헤더 발급 → 실제 loopback HTTP Preview를 검증한다. 운영 코드에 Fixture 등록/우회 경로는 없다.
+- 정상/단축/연장, 마감/버퍼 경계, 노후 ETA, 누락/DEMO 등록 거절, 만료/미존재, revision 불일치, 엄격한 입력 검증, 반복 Preview 불변성, 서버 오류 보존, 용량/동시성/재시작 소멸, 기본 비활성/loopback 차단을 검증한다.
+- Preview 테스트에서 장소·도로 호출 수 불변 및 AI 모델 미호출을 확인한다. 순수 계산 엔진의 기존 누락 ETA UNKNOWN 테스트도 유지한다.
+- 기존 `/plan`, `/validate`, `/recommend` 회귀 테스트를 포함한 Backend `test --offline`을 실행한다. 실제 OpenAI/카카오/도로 호출과 Live 테스트는 실행하지 않는다.
+- Android 연동, 장치 위치/체류 관측, 인증·계획 소유권, 서버 승인/revision 갱신, 실제 외부 Provider 통합 검증은 아직 수행하지 않았다.
+
+검증 실행 결과 (2026-11-07): Android Studio JBR을 JAVA_HOME으로 지정하고 프로젝트 루트에서 ./backend/gradlew.bat -p backend test --offline 실행, BUILD SUCCESSFUL. 전체 310개: 통과 308, 실패/오류 0, Live 2개 SKIPPED. 이번 API 단계 신규 25개와 기존 재계획 계산 24개 모두 통과. git diff --check 및 신규 파일 개별 공백 검사 통과. 실제 외부 API/장치/Android 연동은 실행하지 않았다.

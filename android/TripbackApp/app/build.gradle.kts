@@ -5,6 +5,7 @@ plugins {
 
 android {
     namespace = "com.tripback.app"
+    useLibrary("android.car")
     compileSdk {
         version = release(37)
     }

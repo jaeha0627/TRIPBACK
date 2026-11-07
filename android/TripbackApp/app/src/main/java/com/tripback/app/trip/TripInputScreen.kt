@@ -55,7 +55,7 @@ fun TripInputScreen(
     ) {
         Text("오늘은 어디로 떠나볼까요?", style = MaterialTheme.typography.headlineMedium)
         Text("가는 길부터 돌아오는 길까지 · AI 추천 연결 전")
-        Text("정차 중 입력해 주세요. 차량 상태 연동과 주행 중 자동 편집 제한은 아직 없습니다.")
+        Text("정차 중 입력해 주세요. 차량 UX 제한 중이거나 상태를 확인할 수 없으면 입력·편집을 잠급니다.")
         ChoiceGroup("여행 지역", TripChoices.regions.associateWith { it }, setOf(input.region)) { change(input.copy(region = it)) }
         OutlinedTextField(schedule.date, { onScheduleChange(schedule.copy(date = it, confirmed = false)) },
             label = { Text("여행 날짜 (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())

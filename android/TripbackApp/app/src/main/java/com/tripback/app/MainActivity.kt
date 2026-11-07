@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.Button
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +33,10 @@ import com.tripback.app.ui.theme.TripbackAppTheme
 import com.tripback.app.trip.TripPlannerScreen
 
 class MainActivity : ComponentActivity() {
+    private val safety by lazy { com.tripback.app.trip.progress.drivingSafetyMonitor(applicationContext) }
+    override fun onStart() { super.onStart(); safety.start() }
+    override fun onStop() { safety.close(); super.onStop() }
+
     private var naviHelper: NaviHelper? = null
     private var connectionStatus by mutableStateOf("내비게이션 연결 중")
     private var connected by mutableStateOf(false)
@@ -69,6 +74,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             TripbackAppTheme {
+                val drivingSafety by safety.state.collectAsState()
+                com.tripback.app.trip.progress.DrivingSafetyGate(drivingSafety) {
                 TripPlannerScreen {
                     Column(
                         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -92,6 +99,7 @@ class MainActivity : ComponentActivity() {
                         Text(destinationChangedStatus)
                         Text(routeErrorStatus)
                     }
+                }
                 }
             }
         }

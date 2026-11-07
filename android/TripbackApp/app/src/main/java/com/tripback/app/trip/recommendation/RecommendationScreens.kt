@@ -1,6 +1,7 @@
 package com.tripback.app.trip.recommendation
 
 import androidx.activity.compose.BackHandler
+import com.tripback.app.BuildConfig
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.graphics.RectangleShape
@@ -29,13 +30,21 @@ private val Soft=Color(0xFFF3F5F7)
 private val Ink=Color(0xFF14191F)
 
 @Composable
-fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=null) {
+fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=null,
+    journeyClock:com.tripback.app.trip.progress.JourneyClock=com.tripback.app.trip.progress.AndroidJourneyClock) {
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val navigation=remember(context) { PleosNavigationAdapter(context) }
+    DisposableEffect(navigation) { navigation.connect(); onDispose { navigation.close() } }
+    val capability by navigation.capability.collectAsState()
+    val observation by navigation.observation.collectAsState()
     val scope=rememberCoroutineScope()
     val repo=repository ?: remember { FakeRecommendationRepository() }
-    val saver=remember(scope,repo) { listSaver<RecommendationSession,String>(
-        save={it.snapshot()},restore={ saved -> RecommendationSession(scope,repo).also {it.restore(saved)} }) }
-    val session=rememberSaveable(saver=saver) { RecommendationSession(scope,repo) }
+    val saver=remember(scope,repo,navigation,journeyClock) { listSaver<RecommendationSession,String>(
+        save={it.snapshot()},restore={ saved -> RecommendationSession(scope,repo,navigation,journeyClock).also {it.restore(saved)} }) }
+    val session=rememberSaveable(saver=saver) { RecommendationSession(scope,repo,navigation,journeyClock) }
     val state by session.state.collectAsState()
+    val journey by session.journey.collectAsState()
+    val departure by session.navigation.state.collectAsState()
     var form by rememberSaveable { mutableStateOf(RecommendationForm()) }
     var inputError by rememberSaveable { mutableStateOf<String?>(null) }
     val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -54,13 +63,13 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
                 Spacer(Modifier.weight(1f))
                 BadgeText("새 여행",Teal)
                 Spacer(Modifier.width(12.dp))
-                TextButton(onClick=onExit,modifier=Modifier.heightIn(min=48.dp)) { Text("기존 기능") }
+                TextButton(onClick=onExit,enabled=state.page!=RecommendationPage.JOURNEY,modifier=Modifier.heightIn(min=48.dp)) { Text("기존 기능") }
             }
             HorizontalDivider(color=Line)
             Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween) {
                 listOf("가는 길","머무는 시간","오는 길").forEach { Text(it,Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center,color=Color.Gray,fontSize=13.sp) }
             }
-            Text(if(LocalHttp.current) "HTTP 개발 연결 · 127.0.0.1:8080 · 테스트 좌표 · 차량 상태 미연결" else "FAKE 시연 · 실제 AI·카카오 호출 없음 · 차량 상태 미연결",
+            Text(if(LocalHttp.current) "HTTP 개발 연결 · 127.0.0.1:8080 · 테스트 좌표 · 차량 기어·속도 미연결" else "FAKE 시연 · 실제 AI·카카오 호출 없음 · 차량 기어·속도 미연결",
                 Modifier.fillMaxWidth().background(Soft).padding(horizontal=24.dp,vertical=8.dp),fontSize=13.sp,color=Navy)
             Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.TopCenter) {
                 when(state.page) {
@@ -72,7 +81,8 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
                     RecommendationPage.LOADING -> LoadingPage(form,onCancel=session::cancel)
                     RecommendationPage.RESULTS -> ResultsPage(state,onDetail=session::detail,onEdit=session::input)
                     RecommendationPage.DETAIL -> DetailPage(state,onSelect=session::select,onBack=session::results)
-                    RecommendationPage.READY -> ReadyPage(state,onBack=session::back,onEdit=session::input)
+                    RecommendationPage.JOURNEY -> journey?.let { com.tripback.app.trip.progress.JourneyScreen(it,session::finishDemo) }
+                    RecommendationPage.READY -> ReadyPage(state,capability,observation,departure,onDemo={session.beginDemo()},onApprove={session.approveDeparture(it,false)},onBack=session::back,onEdit=session::input)
                 }
             }
         }
@@ -159,7 +169,7 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
                         Choices("편의시설",TripChoices.amenities,form.amenities){change(form.copy(amenities=toggle(form.amenities,it)))}
                         Row(verticalAlignment=Alignment.CenterVertically) {Checkbox(form.rain,{change(form.copy(rain=it))});Text("비가 오면 실내 선호")}
                     }
-                    if(!wide && !LocalHttp.current) ScenarioPicker(form.scenario){change(form.copy(scenario=it))}
+                    if(BuildConfig.DEBUG && !wide && !LocalHttp.current) ScenarioPicker(form.scenario){change(form.copy(scenario=it))}
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Checkbox(form.parked,{change(form.copy(parked=it))},Modifier.testTag("parked"))
                         Text("주차 상태에서 시연합니다 · 차량 상태 자동 확인 아님")
@@ -169,7 +179,7 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
                     Spacer(Modifier.height(16.dp))
                 }
                 if(wide) Column(Modifier.weight(0.32f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                    if(!LocalHttp.current) ScenarioPicker(form.scenario){change(form.copy(scenario=it))}
+                    if(BuildConfig.DEBUG && !LocalHttp.current) ScenarioPicker(form.scenario){change(form.copy(scenario=it))}
                     Panel { Text("왕복 여행 준비",fontWeight=FontWeight.Medium);Text("01  조건 입력\n02  코스 비교\n03  상세 확인\n04  로컬 선택",lineHeight=30.sp)
                         Text("실제 내비 안내·여행 저장은 시작하지 않습니다.",fontSize=13.sp,color=Color.DarkGray) }
                     SourceLegend()
@@ -224,6 +234,7 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
         }
         response.rejectedAlternatives.forEach { rejected -> Panel {
             Text("선택할 수 없는 제안 · "+rejectionLabel(rejected.reason),color=MaterialTheme.colorScheme.error)
+            RejectionDiagnostic(rejected.index, rejected.reason, LocalHttp.current)
             rejected.proposal?.let { a -> Text(a.title+" · "+feasibilityLabel(a.feasibility));Margin(a)
                 Text("장소 또는 필수 이동 구간의 정보를 확인해 주세요.",fontSize=12.sp) }
         } }
@@ -301,27 +312,71 @@ fun feasibilityLabel(value:ValidationFeasibility)=when(value) {
         }
     }
 }
-@Composable private fun ReadyPage(state:RecommendationUiState,onBack:()->Unit,onEdit:()->Unit) {
+@Composable private fun ReadyPage(state:RecommendationUiState,capability:NavigationCapability,observation:String,departure:NavigationState,onDemo:()->Unit,onApprove:(Boolean)->Unit,onBack:()->Unit,onEdit:()->Unit) {
     val a=state.selected ?: return
     Column(Modifier.widthIn(max=1000.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp).testTag("ready"),
         verticalArrangement=Arrangement.spacedBy(18.dp)) {
         Title("출발을 준비해요","코스를 이 기기에서 선택했습니다. 서버 여행 저장이나 내비 안내는 시작하지 않았습니다.")
         Panel(soft=true) {Text(a.title,fontSize=24.sp,color=Navy);Margin(a);BadgeText("로컬 선택 · "+a.dataModes.joinToString {it.name})}
         Panel {Text("안내 시작 전 확인",fontWeight=FontWeight.Medium)
-            Text("• 장소·ETA 출처: "+a.dataModes.joinToString {it.name}+"\n• 현재 위치·차량 상태·Pleos POI를 확인하지 않았습니다.\n• 실제 경로 전달 기능은 이번 버전에 연결하지 않았습니다.",lineHeight=28.sp)}
-        Action("실제 내비 안내 미연결",{},enabled=false,modifier=Modifier.testTag("navigationDisabled"))
+            Text("장소·ETA 출처: "+a.dataModes.joinToString {it.name})
+            val destination=runCatching { NavigationDestinationValidator.first(a) }
+            destination.getOrNull()?.let { d ->
+                Text("첫 목적지: ${d.name}\n${d.address}\n위도 ${d.coordinates.latitude} / 경도 ${d.coordinates.longitude}")
+                Text("원본 ID: ${d.sourceId.provider} / ${d.sourceId.value} · Pleos POI ID 아님")
+            }
+            destination.exceptionOrNull()?.let { Text(it.message ?: "목적지 검증 실패") }
+            Text(capability.message,modifier=Modifier.testTag("navigationCapability"))
+            Text("차량 UX 제한은 앱에서 확인합니다. 주차 체크박스는 실제 차량 상태가 아닙니다. POI 규약 검증 전 출발 승인 기능은 비활성 상태입니다.")
+            Text(observation)
+            Text(departure.message,modifier=Modifier.testTag("navigationState"))
+        }
+        Action("실제 내비 안내 미연결",{onApprove(true)},enabled=false,modifier=Modifier.testTag("navigationDisabled"))
+        Action("여행 진행 수동 시연 · DEMO_SIMULATED",onDemo,modifier=Modifier.testTag("beginJourneyDemo"))
         Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick=onBack,shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp).testTag("readyReview")){Text("일정 다시 보기")}
             OutlinedButton(onClick=onEdit,shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp)){Text("조건 바꾸기")}
         }
     }
 }
-private fun rejectionLabel(reason:String)=when(reason) {
-    "VALIDATION_UNKNOWN" -> "ETA 또는 장소 확인이 부족해요."
-    "VALIDATION_INFEASIBLE" -> "귀가 마감 또는 안전 여유를 지키기 어려워요."
-    "MAXIMUM_ONE_WAY_EXCEEDED" -> "최대 편도시간을 초과했어요."
-    "REQUIRED_PLACE_UNAVAILABLE", "REQUIRED_VISIT_MISSING" -> "필수 방문지를 확인하지 못했어요."
-    else -> "제안의 장소와 검증 결과를 확인하지 못했어요."
+private val rejectionDescriptions = mapOf(
+    "INVALID_TEXT" to "제목 또는 설명의 길이·공백·문자 형식이 올바르지 않아요.",
+    "UNSAFE_GENERATED_TEXT" to "제목 또는 설명에서 민감정보 형태가 감지됐어요.",
+    "UNLISTED_PLACE_ID" to "후보 목록에 없는 방문지가 포함됐어요.",
+    "DUPLICATE_VISIT" to "한 제안에 같은 방문지가 중복됐어요.",
+    "INVALID_VISIT_COUNT" to "방문지 개수가 허용 범위인 1~5개를 벗어났어요.",
+    "INTEGER_OUT_OF_RANGE" to "체류시간 등 정수 값이 허용 범위를 벗어났어요.",
+    "INVALID_INTEGER" to "체류시간 등 정수 값의 형식이 올바르지 않아요.",
+    "DUPLICATE_ALTERNATIVE" to "방문 순서와 체류시간이 같은 제안이 중복됐어요.",
+    "INVALID_STRUCTURE" to "제안의 데이터 구조가 올바르지 않아요.",
+    "UNSUPPORTED_FIELD" to "제안에 허용되지 않은 항목이 포함됐어요.",
+    "MISSING_FIELD" to "제안에 필요한 항목이 빠졌어요.",
+    "UNSUPPORTED_VALUE" to "제안에 허용되지 않은 값이 포함됐어요.",
+    "INVALID_JSON" to "제안의 JSON 형식이 올바르지 않아요.",
+    "JSON_SIZE_LIMIT" to "제안 데이터의 크기가 허용 범위를 벗어났어요.",
+    "INVALID_ALTERNATIVE_COUNT" to "제안 개수가 허용 범위를 벗어났어요.",
+    "MODEL_RETURNED_NO_ALTERNATIVES" to "모델이 제안을 반환하지 않았어요.",
+    "VALIDATION_UNKNOWN" to "ETA 또는 장소 확인이 부족해요.",
+    "VALIDATION_INFEASIBLE" to "귀가 마감 또는 안전 여유를 지키기 어려워요.",
+    "MAXIMUM_ONE_WAY_EXCEEDED" to "최대 편도시간을 초과했어요.",
+    "REQUIRED_PLACE_UNAVAILABLE" to "필수 방문지를 확인하지 못했어요.",
+    "REQUIRED_VISIT_MISSING" to "필수 방문지를 확인하지 못했어요."
+)
+internal fun rejectionLabel(reason:String) =
+    rejectionDescriptions[reason] ?: "제안의 장소와 검증 결과를 확인하지 못했어요."
+
+// Only fixed allowlisted text and a bounded numeric index enter this diagnostic.
+internal fun rejectionDiagnosticText(index:Int, reason:String, debug:Boolean, http:Boolean):String? {
+    if (!debug || !http) return null
+    val safeIndex = if (index in 0..1) index.toString() else if (index == -1) "전체" else "미확인"
+    val safeCode = if (reason in rejectionDescriptions) reason else "UNKNOWN_REJECTION"
+    return "거부안 index: $safeIndex · reason: $safeCode"
+}
+
+@Composable internal fun RejectionDiagnostic(index:Int, reason:String, http:Boolean) {
+    rejectionDiagnosticText(index, reason, BuildConfig.DEBUG, http)?.let {
+        Text(it, fontSize=12.sp, modifier=Modifier.testTag("rejectionDiagnostic"))
+    }
 }
 @Composable private fun SourceLegend() {
     Panel {

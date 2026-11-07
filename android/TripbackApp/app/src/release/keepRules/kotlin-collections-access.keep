@@ -1,0 +1,6 @@
+# R8 9.4.24 + packageScope splits Kotlin's package-private collection facade chain.
+# Keeping IteratorsKt alone moves the illegal boundary to ___CollectionsJvmKt.
+# Preserve the facade chain's names/package, without keeping its methods or unused code.
+# Shrinking/optimization and obfuscation of all other classes remain enabled.
+# Failing map id: e798dd8dc03b9e1fe702998b72b2b2de37e642d13076c7796414551f63b72c5b.
+-keep,allowshrinking,allowoptimization class kotlin.collections.CollectionsKt*

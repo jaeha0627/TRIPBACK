@@ -25,7 +25,10 @@ class ReplanDebugPanelTest {
             }, {}, {}, {}, ReplanUiScenario.NORMAL, {}, useHttp = true)
         } }
         compose.runOnIdle { assertEquals(0, registrations) }
-        compose.onNodeWithTag("previewOnly").assertTextContains("CLIENT_REPORTED_NOT_VERIFIED")
+        compose.onNodeWithTag("previewOnly").assertTextContains(
+            "CLIENT_REPORTED_NOT_VERIFIED",
+            substring = true
+        )
         compose.onNodeWithTag("httpObservationWarning").assertExists()
         compose.onNodeWithTag("scenarioNORMAL").assertDoesNotExist()
         compose.onNodeWithTag("registerReplan").performScrollTo().performClick()

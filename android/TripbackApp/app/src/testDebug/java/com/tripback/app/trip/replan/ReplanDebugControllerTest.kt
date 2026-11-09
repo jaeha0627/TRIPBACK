@@ -4,6 +4,7 @@ import com.tripback.app.trip.ValidationFeasibility
 import com.tripback.app.trip.progress.*
 import com.tripback.app.trip.recommendation.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -11,6 +12,65 @@ import java.time.*
 import kotlin.coroutines.*
 
 class ReplanDebugControllerTest {
+    /** Synthetic loopback responses only; verified labels are contract samples, not live evidence. */
+    @Test fun httpRecommendationSelectionManualStayRegistrationAndPreview() = runBlocking {
+        ReplanFixtures.Server().use { server ->
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val clock = Time()
+            var controller: ReplanDebugController? = null
+            try {
+                val session = RecommendationSession(scope, HttpRecommendationRepository(server.base), journeyClock = clock)
+                assertEquals(0, server.recommendations.get())
+                session.submit(ReplanFixtures.request, FakeScenario.ONE)
+                val result = withTimeout(5000) { session.state.first { it.page != RecommendationPage.LOADING } }
+                assertEquals(RecommendationPage.RESULTS, result.page)
+                session.detail(result.response!!.alternatives.first().planId)
+                session.select()
+                assertEquals(RecommendationPage.READY, session.state.value.page)
+                session.beginDemo()
+                val journey = session.journey.value!!
+                journey.depart(true)
+                journey.manualAdvance(JourneyPhase.DEPARTURE, journey.state.value.revision)
+                journey.manualAdvance(JourneyPhase.TRAVELING, journey.state.value.revision)
+                journey.startStay()
+                clock.advance(600)
+                assertEquals(JourneyPhase.STAYING, journey.state.value.phase)
+                val original = journey.snapshot()
+                val selected = session.state.value
+                val c = ReplanDebugController(scope, journey, selected.request, selected.raw,
+                    selected.selectedPlanId, server.client(clock), clock)
+                controller = c
+                assertTrue(c.view().canRegister)
+                assertFalse(c.register(false)); assertFalse(c.preview())
+                c.changeTotal(50)
+                assertEquals(0, server.registrations.get()); assertEquals(0, server.previews.get())
+                assertTrue(c.register(true))
+                val registered = withTimeout(5000) { c.state.first { it.phase != ReplanRequestPhase.LOADING } }
+                assertEquals(PlanRegistrationStatus.REGISTERED, registered.registrationStatus)
+                assertEquals("true", server.registrationHeader.get())
+                assertTrue(c.view().canPreview)
+                assertEquals(0, server.previews.get())
+                val observation = ReplanObservation(0, clock.instant().atOffset(ZoneOffset.UTC), 600, 50, journey.state.value.revision)
+                server.previewBody = ReplanFixtures.preview(ReplanFixtures.registered(), observation).toString()
+                assertTrue(c.preview())
+                withTimeout(5000) { c.state.first { it.phase != ReplanRequestPhase.LOADING } }
+                val preview = c.view().requestState.preview!!
+                assertEquals("PREVIEW_ONLY", preview.status)
+                assertEquals("CLIENT_REPORTED_NOT_VERIFIED", preview.progressVerification)
+                assertEquals(1200L, Duration.between(preview.before.predictedReturnAt, preview.after.predictedReturnAt).seconds)
+                val sent = Json.parseToJsonElement(server.captured.get()).jsonObject
+                assertEquals(50L, sent.getValue("requestedTotalStayMinutes").jsonPrimitive.long)
+                assertEquals(600L, sent.getValue("elapsedStaySeconds").jsonPrimitive.long)
+                assertEquals("STAYING", sent.getValue("phase").jsonPrimitive.content)
+                assertNull(server.registrationHeader.get())
+                c.dismiss()
+                assertNull(c.view().requestState.preview)
+                assertEquals(original, journey.snapshot())
+                assertEquals(1, server.recommendations.get())
+                assertEquals(1, server.registrations.get()); assertEquals(1, server.previews.get())
+            } finally { controller?.close(); scope.cancel() }
+        }
+    }
     @Test fun httpControllerEntryAndUnapprovedActionsNeverPost() {
         ReplanFixtures.Server().use { server ->
             Context(repository = server.client()).use { c ->

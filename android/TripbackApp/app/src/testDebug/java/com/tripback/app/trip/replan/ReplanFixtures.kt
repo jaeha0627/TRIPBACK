@@ -126,6 +126,7 @@ internal object ReplanFixtures {
         val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         private val executor = Executors.newCachedThreadPool()
         val base get() = "http://127.0.0.1:${server.address.port}"
+        val recommendations = AtomicInteger()
         val registrations = AtomicInteger(); val previews = AtomicInteger()
         val captured = AtomicReference(""); val registrationHeader = AtomicReference<String?>()
         val entered = CountDownLatch(1); val release = CountDownLatch(1)
@@ -141,6 +142,15 @@ internal object ReplanFixtures {
             server.executor = executor
             server.createContext("/") { e ->
                 try {
+                    if (e.requestURI.path == "/api/v1/trips/recommend") {
+                        recommendations.incrementAndGet()
+                        e.requestBody.use { it.readBytes() }
+                        val bytes = recommendation().toByteArray(Charsets.UTF_8)
+                        e.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                        e.sendResponseHeaders(200, bytes.size.toLong())
+                        e.responseBody.use { it.write(bytes) }
+                        return@createContext
+                    }
                     val register = e.requestURI.path == "/api/v1/trips/validate"
                     if (register) registrations.incrementAndGet() else previews.incrementAndGet()
                     captured.set(e.requestBody.use { it.readBytes().toString(Charsets.UTF_8) })

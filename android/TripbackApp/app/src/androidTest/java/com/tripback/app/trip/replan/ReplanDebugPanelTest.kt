@@ -97,4 +97,17 @@ class ReplanDebugPanelTest {
         compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextContains("UNKNOWN")
         compose.onNodeWithTag("notServerApproved").performScrollTo().assertTextContains("서버 일정 확정 아님")
     }
+    @Test fun registrationValidationFailureShowsOnlyFixedDiagnosticAndUncertainty() {
+        val current = view().copy(canPreview = false, requestState = ReplanRequestState(
+            phase = ReplanRequestPhase.ERROR, error = ReplanError.INVALID_RESPONSE,
+            diagnostic = ReplanDiagnostic.COORDINATES_CHANGED, registrationUnconfirmed = true))
+        compose.setContent { MaterialTheme {
+            ReplanDebugPanel(current, {}, {}, {}, {}, {}, ReplanUiScenario.NORMAL, {})
+        } }
+        compose.onNodeWithTag("registrationStatus").performScrollTo()
+            .assertTextContains("\uc11c\ubc84 \ub4f1\ub85d \uc5ec\ubd80 \ubbf8\ud655\uc778")
+        compose.onNodeWithTag("replanDiagnostic").performScrollTo().assertTextContains("COORDINATES_CHANGED")
+        compose.onNodeWithTag("requestReplanPreview").performScrollTo().assertIsNotEnabled()
+    }
+
 }

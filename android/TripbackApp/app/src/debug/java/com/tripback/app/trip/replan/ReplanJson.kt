@@ -15,30 +15,35 @@ internal object ReplanJson {
 
     fun registration(body: String, headers: Map<String, List<String>>, selection: ReplanSelection,
         server: String, now: Instant): ReplanRegistration = guarded {
-        strict(body) // Reject duplicate keys before using the established general validation parser.
-        val validation = TripValidationJson.response(body, selection.validationRequest)
-        fun header(name: String): String? {
-            val values = headers.entries.filter { it.key.equals(name, true) }.flatMap { it.value }
-            require(values.size <= 1)
-            return values.singleOrNull()?.also { require(it == it.trim() && it.length <= 100) }
+        val validation = diagnostic(ReplanDiagnostic.BODY_SCHEMA) {
+            strict(body) // Reject duplicate keys before using the established general validation parser.
+            TripValidationJson.response(body, selection.validationRequest)
         }
-        val status = PlanRegistrationStatus.valueOf(requireNotNull(header("X-Tripback-Plan-Registration")))
-        val token = header("X-Tripback-Plan-Ref")
-        val revision = header("X-Tripback-Plan-Revision")
-        val expiry = header("X-Tripback-Plan-Expires-At")
-        if (status != PlanRegistrationStatus.REGISTERED) {
-            require(token == null && revision == null && expiry == null)
-            return@guarded ReplanRegistration(status, validation, null)
+        diagnostic(ReplanDiagnostic.HEADER_CONTRACT) {
+            fun header(name: String): String? {
+                val values = headers.entries.filter { it.key.equals(name, true) }.flatMap { it.value }
+                require(values.size <= 1)
+                return values.singleOrNull()?.also { require(it == it.trim() && it.length <= 100) }
+            }
+            val status = PlanRegistrationStatus.valueOf(requireNotNull(header("X-Tripback-Plan-Registration")))
+            val token = header("X-Tripback-Plan-Ref")
+            val revision = header("X-Tripback-Plan-Revision")
+            val expiry = header("X-Tripback-Plan-Expires-At")
+            if (status != PlanRegistrationStatus.REGISTERED) {
+                require(token == null && revision == null && expiry == null)
+                return@diagnostic ReplanRegistration(status, validation, null)
+            }
+            require(token != null && Regex("[A-Za-z0-9_-]{43}").matches(token))
+            require(revision != null && Regex("[1-9][0-9]*").matches(revision))
+            val version = revision.toLong()
+            require(version == 1L) // Current server snapshots are immutable revision 1; do not invent revision upgrades.
+            val expiresAt = diagnostic(ReplanDiagnostic.EXPIRY_WINDOW) {
+                Instant.parse(requireNotNull(expiry)).also { require(it > now && it <= now.plusSeconds(1800)) }
+            }
+            diagnostic(ReplanDiagnostic.SNAPSHOT_CONTRACT) { verifySnapshot(selection, validation) }
+            ReplanRegistration(status, validation, RegisteredReplanPlan(selection, validation,
+                PlanReference(token, version, expiresAt), server))
         }
-        require(token != null && Regex("[A-Za-z0-9_-]{43}").matches(token))
-        require(revision != null && Regex("[1-9][0-9]*").matches(revision))
-        val version = revision.toLong()
-        require(version == 1L) // Current server snapshots are immutable revision 1; do not invent revision upgrades.
-        val expiresAt = Instant.parse(requireNotNull(expiry))
-        require(expiresAt > now && expiresAt <= now.plusSeconds(1800))
-        verifySnapshot(selection, validation)
-        ReplanRegistration(status, validation, RegisteredReplanPlan(selection, validation,
-            PlanReference(token, version, expiresAt), server))
     }
 
     private fun verifySnapshot(selection: ReplanSelection, v: ValidationResult) {
@@ -54,19 +59,25 @@ internal object ReplanJson {
             require(current.requestedId == previous.requestedId && current.stayMinutes == previous.stayMinutes)
             require(current.confirmedPlace != null && previous.confirmedPlace != null)
             // Exact coordinates: a changed place must be reviewed, never silently accepted as a new baseline.
-            require(current.confirmedPlace.coordinates == previous.confirmedPlace.coordinates)
+            diagnostic(ReplanDiagnostic.COORDINATES_CHANGED) {
+                require(current.confirmedPlace.coordinates == previous.confirmedPlace.coordinates)
+            }
             require(current.confirmedPlace.data.verification == "VALIDATED_PROVIDER_DATA")
         }
         v.legs.forEach { require(it.data?.verification == "VALIDATED_PROVIDER_DATA" && it.durationSeconds != null) }
-        for (leg in listOf(v.legs.first(), v.legs.last()))
-            require(ceilMinutes(requireNotNull(leg.durationSeconds)) <= selection.request.maximumOneWayMinutes)
-        val travel = v.legs.fold(0L) { sum, leg -> Math.addExact(sum, ceilMinutes(requireNotNull(leg.durationSeconds))) }
-        val stay = v.request.visits.fold(0L) { sum, visit -> Math.addExact(sum, visit.stayMinutes) }
-        require(v.totalTravelMinutes == travel && v.totalStayMinutes == stay)
-        val predicted = v.request.departAt.toInstant().plusSeconds(Math.multiplyExact(Math.addExact(travel, stay), 60))
-        require(v.predictedReturnAt?.toInstant() == predicted)
-        val margin = Duration.between(predicted, v.request.returnDeadline.toInstant())
-        require(v.remainingMarginMin == Math.floorDiv(margin.seconds, 60) && margin >= Duration.ofMinutes(v.request.safetyBufferMin.toLong()))
+        diagnostic(ReplanDiagnostic.ONE_WAY_LIMIT) {
+            for (leg in listOf(v.legs.first(), v.legs.last()))
+                require(ceilMinutes(requireNotNull(leg.durationSeconds)) <= selection.request.maximumOneWayMinutes)
+        }
+        diagnostic(ReplanDiagnostic.CALCULATION_MISMATCH) {
+            val travel = v.legs.fold(0L) { sum, leg -> Math.addExact(sum, ceilMinutes(requireNotNull(leg.durationSeconds))) }
+            val stay = v.request.visits.fold(0L) { sum, visit -> Math.addExact(sum, visit.stayMinutes) }
+            require(v.totalTravelMinutes == travel && v.totalStayMinutes == stay)
+            val predicted = v.request.departAt.toInstant().plusSeconds(Math.multiplyExact(Math.addExact(travel, stay), 60))
+            require(v.predictedReturnAt?.toInstant() == predicted)
+            val margin = Duration.between(predicted, v.request.returnDeadline.toInstant())
+            require(v.remainingMarginMin == Math.floorDiv(margin.seconds, 60) && margin >= Duration.ofMinutes(v.request.safetyBufferMin.toLong()))
+        }
     }
 
     fun request(plan: RegisteredReplanPlan, observation: ReplanObservation, now: Instant): String {
@@ -210,6 +221,9 @@ internal object ReplanJson {
         require(stack.isEmpty())
         return Json.parseToJsonElement(body)
     }
+    private inline fun <T> diagnostic(code: ReplanDiagnostic, block: () -> T): T = try { block() }
+        catch (e: ReplanException) { throw e }
+        catch (_: Exception) { throw ReplanException(ReplanError.INVALID_RESPONSE, diagnostic = code) }
     private inline fun <T> guarded(block: () -> T): T = try { block() }
         catch (e: ReplanException) { throw e }
         catch (_: Exception) { throw ReplanException(ReplanError.INVALID_RESPONSE) }

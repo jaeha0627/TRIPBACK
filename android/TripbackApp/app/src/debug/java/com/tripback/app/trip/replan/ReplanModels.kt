@@ -12,7 +12,10 @@ enum class ReplanError {
     INTERNAL_ERROR, API_NOT_AVAILABLE, HTTP_ERROR, INVALID_RESPONSE, NETWORK, TIMEOUT,
     EXPLICIT_REQUEST_REQUIRED, SELECTION_MISMATCH, REGISTRATION_UNAVAILABLE
 }
-class ReplanException(val error: ReplanError, val httpStatus: Int? = null) :
+enum class ReplanDiagnostic { BODY_SCHEMA, HEADER_CONTRACT, EXPIRY_WINDOW, SNAPSHOT_CONTRACT, COORDINATES_CHANGED, ONE_WAY_LIMIT, CALCULATION_MISMATCH, HTTP_RESPONSE }
+
+class ReplanException(val error: ReplanError, val httpStatus: Int? = null,
+    val diagnostic: ReplanDiagnostic? = null, val registrationUnconfirmed: Boolean = false) :
     IOException("Replan failure: ${error.name}${httpStatus?.let { " (HTTP $it)" }.orEmpty()}")
 
 /** A separate immutable-by-convention selection snapshot; never a TripJourney or an approved change. */

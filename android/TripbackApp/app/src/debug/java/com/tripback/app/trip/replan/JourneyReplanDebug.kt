@@ -131,11 +131,14 @@ fun ReplanDebugPanel(view: ReplanDebugView, onTotal: (Long) -> Unit, onRegister:
         }
         PreviewCard {
             Text(if (useHttp) "서버 검증 계획 등록 상태 · HTTP 개발" else "서버 검증 계획 등록 상태 · FAKE 흐름", color = PreviewNavy, fontWeight = FontWeight.Medium)
-            Text(view.requestState.registrationStatus?.let { if (useHttp) "$it · Preview용 임시 참조" else "$it · 서버 등록 아님" } ?: "미등록", modifier = Modifier.testTag("registrationStatus"))
+            Text(view.requestState.registrationStatus?.let { if (useHttp) "$it · Preview용 임시 참조" else "$it · 서버 등록 아님" } ?: (if (view.requestState.registrationUnconfirmed) "서버 등록 여부 미확인" else "미등록"), modifier = Modifier.testTag("registrationStatus"))
             Text("계획 참조: ${when { view.requestState.phase == ReplanRequestPhase.EXPIRED -> "만료됨"; view.requestState.expiresAt != null -> "30분 TTL · " + timeText(view.requestState.expiresAt) + " 만료"; else -> "사용 가능한 참조 없음" }}")
             Text("ETA 유효기간 15분 · 만료·실패 시 자동 재등록/재시도 없음")
             view.etaNotice?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("previewEtaExpired")) }
             view.blockedReason?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("replanBlocked")) }
+            view.requestState.diagnostic?.let {
+                Text(it.name, modifier = Modifier.testTag("replanDiagnostic"))
+            }
             view.requestState.error?.let { Text("${errorText(it)} · ${it.name}", color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("replanError")) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = { confirmation = true; confirmed = false }, enabled = view.canRegister,

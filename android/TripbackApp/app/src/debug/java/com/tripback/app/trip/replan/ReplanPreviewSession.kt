@@ -7,7 +7,8 @@ import kotlinx.coroutines.flow.*
 enum class ReplanRequestPhase { IDLE, LOADING, PREVIEW_READY, EXPIRED, ERROR }
 data class ReplanRequestState(val phase: ReplanRequestPhase = ReplanRequestPhase.IDLE,
     val registrationStatus: PlanRegistrationStatus? = null, val expiresAt: Instant? = null,
-    val preview: ReplanPreview? = null, val error: ReplanError? = null)
+    val preview: ReplanPreview? = null, val error: ReplanError? = null,
+    val diagnostic: ReplanDiagnostic? = null, val registrationUnconfirmed: Boolean = false)
 
 /** UI-scope owner. No Journey reducer, approval, persistence or automatic registration.
  * Call cancel on phase/local-revision/candidate changes or screen stop (keeps a usable baseline).
@@ -44,7 +45,7 @@ class ReplanPreviewSession(private val scope: CoroutineScope, private val reposi
         checkExpiry()
         val current = plan ?: return false
         val token = ++generation
-        mutable.value = mutable.value.copy(phase = ReplanRequestPhase.LOADING, preview = null, error = null)
+        mutable.value = mutable.value.copy(phase = ReplanRequestPhase.LOADING, preview = null, error = null, diagnostic = null)
         job = scope.launch {
             try {
                 val result = repository.preview(current, observation)
@@ -98,12 +99,14 @@ class ReplanPreviewSession(private val scope: CoroutineScope, private val reposi
                 plan?.reference?.discard(); plan = null; expiryJob?.cancel()
                 mutable.value = ReplanRequestState(ReplanRequestPhase.ERROR, error = code)
             }
-            else -> mutable.value = mutable.value.copy(phase = ReplanRequestPhase.ERROR, preview = null, error = code)
+            else -> mutable.value = mutable.value.copy(phase = ReplanRequestPhase.ERROR, preview = null, error = code,
+                diagnostic = (e as? ReplanException)?.diagnostic,
+                registrationUnconfirmed = (e as? ReplanException)?.registrationUnconfirmed == true)
         }
     }
     fun cancel() {
         ++generation; job?.cancel(); job = null
-        mutable.value = mutable.value.copy(phase = ReplanRequestPhase.IDLE, preview = null, error = null)
+        mutable.value = mutable.value.copy(phase = ReplanRequestPhase.IDLE, preview = null, error = null, diagnostic = null)
         checkExpiry()
     }
     fun invalidateContext() {

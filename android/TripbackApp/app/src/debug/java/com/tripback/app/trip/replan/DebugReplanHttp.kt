@@ -29,8 +29,14 @@ class DebugReplanHttp(
         if (!explicitlyRequested) throw ReplanException(ReplanError.EXPLICIT_REQUEST_REQUIRED)
         // Runtime UI fixtures are synthetic contract samples, never eligible for real server registration.
         if (selection.plan.planId.startsWith(REPLAN_FIXTURE_PLAN_PREFIX)) throw ReplanException(ReplanError.SELECTION_MISMATCH)
-        val reply = post("/api/v1/trips/validate", TripValidationJson.request(selection.validationRequest), true)
-        return ReplanJson.registration(reply.body, reply.headers, selection, base, clock.instant())
+        try {
+            val reply = post("/api/v1/trips/validate", TripValidationJson.request(selection.validationRequest), true)
+            return ReplanJson.registration(reply.body, reply.headers, selection, base, clock.instant())
+        } catch (e: ReplanException) {
+            if (e.error != ReplanError.INVALID_RESPONSE) throw e
+            throw ReplanException(e.error, e.httpStatus, e.diagnostic ?: ReplanDiagnostic.HTTP_RESPONSE,
+                registrationUnconfirmed = true)
+        }
     }
     override suspend fun preview(plan: RegisteredReplanPlan, observation: ReplanObservation): ReplanPreview {
         require(plan.server == base) // A token may only go back to the server that issued it.
@@ -68,14 +74,14 @@ class DebugReplanHttp(
                     conn.outputStream.use { it.write(bytes) }
                     val status = conn.responseCode
                     val limit = minOf(maxResponseBytes, if (status == 200 && register) 1_048_576 else if (status == 200) 262_144 else 16_384)
-                    if (conn.contentLengthLong > limit) throw ReplanException(ReplanError.INVALID_RESPONSE)
+                    if (conn.contentLengthLong > limit) throw ReplanException(ReplanError.INVALID_RESPONSE, diagnostic = ReplanDiagnostic.HTTP_RESPONSE)
                     val media = conn.contentType.orEmpty().lowercase().replace(" ", "")
                     val json = media.substringBefore(';') == "application/json"
                     if (status == 200 && (!json || ("charset=" in media &&
                                 media.substringAfter("charset=").substringBefore(';') !in setOf("utf-8", "\"utf-8\""))))
-                        throw ReplanException(ReplanError.INVALID_RESPONSE)
+                        throw ReplanException(ReplanError.INVALID_RESPONSE, diagnostic = ReplanDiagnostic.HTTP_RESPONSE)
                     if (conn.getHeaderField("Content-Encoding").orEmpty().let { it.isNotEmpty() && !it.equals("identity", true) })
-                        throw ReplanException(ReplanError.INVALID_RESPONSE)
+                        throw ReplanException(ReplanError.INVALID_RESPONSE, diagnostic = ReplanDiagnostic.HTTP_RESPONSE)
                     val stream = if (status == 200) conn.inputStream else conn.errorStream
                     val raw = stream?.use { input ->
                         val output = ByteArrayOutputStream()
@@ -83,7 +89,7 @@ class DebugReplanHttp(
                         while (true) {
                             val size = input.read(buffer)
                             if (size < 0) break
-                            if (size > limit - output.size()) throw ReplanException(ReplanError.INVALID_RESPONSE)
+                            if (size > limit - output.size()) throw ReplanException(ReplanError.INVALID_RESPONSE, diagnostic = ReplanDiagnostic.HTTP_RESPONSE)
                             output.write(buffer, 0, size)
                         }
                         output.toByteArray()
@@ -97,7 +103,7 @@ class DebugReplanHttp(
                     fail(when (e) {
                         is ReplanException -> e
                         is SocketTimeoutException -> ReplanException(ReplanError.TIMEOUT)
-                        is java.nio.charset.CharacterCodingException -> ReplanException(ReplanError.INVALID_RESPONSE)
+                        is java.nio.charset.CharacterCodingException -> ReplanException(ReplanError.INVALID_RESPONSE, diagnostic = ReplanDiagnostic.HTTP_RESPONSE)
                         else -> ReplanException(ReplanError.NETWORK)
                     })
                 } finally { connection.getAndSet(null)?.disconnect() }

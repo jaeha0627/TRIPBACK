@@ -49,7 +49,7 @@ class ReplanContractTest {
         }
     }
     @Test fun expiredOrExcessiveTtlCannotIssueUsableReference() {
-        for (at in listOf(now, now.minusSeconds(1), now.plusSeconds(1801))) {
+        for (at in listOf(now, now.minusSeconds(1), now.plusSeconds(1803))) {
             val h = headers(); h["X-Tripback-Plan-Expires-At"] = listOf(at.toString())
             rejected { ReplanJson.registration(verified().toString(), h, selection(), "server", now) }
         }

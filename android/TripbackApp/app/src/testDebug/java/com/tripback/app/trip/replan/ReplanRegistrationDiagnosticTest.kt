@@ -60,7 +60,40 @@ class ReplanRegistrationDiagnosticTest {
         rejected(ReplanDiagnostic.EXPIRY_WINDOW) {
             it.responseHeaders["X-Tripback-Plan-Expires-At"] = listOf("invalid")
         }
-        for (expiry in listOf(now, now.plusSeconds(1801))) {
+        for (expiry in listOf(now, now.plusSeconds(1803))) {
+            rejected(ReplanDiagnostic.EXPIRY_WINDOW) {
+                it.responseHeaders["X-Tripback-Plan-Expires-At"] = listOf(expiry.toString())
+            }
+        }
+    }
+
+    @Test fun boundedClockSkewAndConservativeExpiryOverHttp() = runBlocking {
+        // Server registration is fixed; only the Android clock differs (including measured skew).
+        for (offsetMillis in listOf(-2000L, -1043L, -1000L, 0L, 1000L, 2000L)) {
+            Server().use { server ->
+                val clock = TestClock(now.plusMillis(offsetMillis))
+                val plan = server.client(clock).register(selection(), true).plan!!
+                assertEquals(now.plusSeconds(1800), plan.reference.expiresAt)
+                assertEquals(now.plusSeconds(1798), plan.reference.localExpiresAt)
+                assertTrue(plan.reference.isUsable(plan.reference.localExpiresAt.minusNanos(1)))
+                // At actual server expiry even the slowest supported Android clock rejects it.
+                assertFalse(plan.reference.isUsable(now.plusSeconds(1800).plusMillis(offsetMillis)))
+            }
+        }
+    }
+
+    @Test fun outsideSkewBudgetAndNearOrPastExpiryAreRejected() = runBlocking {
+        // A server ahead by more than the budget produces an excessive apparent TTL.
+        Server().use { server ->
+            try {
+                server.client(TestClock(now.minusMillis(2001))).register(selection(), true)
+                fail("Expected skew rejection")
+            } catch (e: ReplanException) {
+                assertEquals(ReplanDiagnostic.EXPIRY_WINDOW, e.diagnostic)
+            }
+        }
+        for (expiry in listOf(now.minusSeconds(1), now, now.plusSeconds(1), now.plusSeconds(2),
+            now.plusSeconds(1802).plusNanos(1), now.plusSeconds(3600))) {
             rejected(ReplanDiagnostic.EXPIRY_WINDOW) {
                 it.responseHeaders["X-Tripback-Plan-Expires-At"] = listOf(expiry.toString())
             }

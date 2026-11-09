@@ -6,6 +6,9 @@ import java.time.*
 
 /** Debug-only wire boundary. Existing validation and recommendation parsers remain unchanged. */
 internal object ReplanJson {
+    // Bounded server/client clock skew; never extend local use past server expiry.
+    private const val CLOCK_SKEW_SECONDS = 2L
+    private const val REGISTRATION_TTL_SECONDS = 1800L
     private val reasons = setOf("CACHED_ETA_ASSUMPTION", "MISSING_ETA", "UNTRUSTED_ETA", "STALE_ETA",
         "FUTURE_ETA_TIMESTAMP", "DEADLINE_PASSED", "DEADLINE_EXCEEDED", "SAFETY_BUFFER_SHORTFALL",
         "TOTAL_STAY_BELOW_ELAPSED", "CALCULATION_OUT_OF_RANGE")
@@ -38,11 +41,14 @@ internal object ReplanJson {
             val version = revision.toLong()
             require(version == 1L) // Current server snapshots are immutable revision 1; do not invent revision upgrades.
             val expiresAt = diagnostic(ReplanDiagnostic.EXPIRY_WINDOW) {
-                Instant.parse(requireNotNull(expiry)).also { require(it > now && it <= now.plusSeconds(1800)) }
+                Instant.parse(requireNotNull(expiry)).also {
+                    require(it > now.plusSeconds(CLOCK_SKEW_SECONDS) &&
+                        it <= now.plusSeconds(REGISTRATION_TTL_SECONDS + CLOCK_SKEW_SECONDS))
+                }
             }
             diagnostic(ReplanDiagnostic.SNAPSHOT_CONTRACT) { verifySnapshot(selection, validation) }
             ReplanRegistration(status, validation, RegisteredReplanPlan(selection, validation,
-                PlanReference(token, version, expiresAt), server))
+                PlanReference(token, version, expiresAt, expiresAt.minusSeconds(CLOCK_SKEW_SECONDS)), server))
         }
     }
 
@@ -99,7 +105,8 @@ internal object ReplanJson {
         require(root.long("baseRevision") == plan.reference.revision && Instant.parse(root.text("planExpiresAt")) == plan.reference.expiresAt)
         val at = Instant.parse(root.text("calculatedAt"))
         val lag = Duration.between(observation.observedAt.toInstant(), at)
-        require(!lag.isNegative && lag <= Duration.ofSeconds(60) && at <= now && at < plan.reference.expiresAt)
+        require(!lag.isNegative && lag <= Duration.ofSeconds(60) &&
+            at <= now.plusSeconds(CLOCK_SKEW_SECONDS) && at < plan.reference.expiresAt)
         val index = root.long("currentVisitIndex").toIntChecked()
         require(index == observation.currentVisitIndex)
         val input = plan.validation.request

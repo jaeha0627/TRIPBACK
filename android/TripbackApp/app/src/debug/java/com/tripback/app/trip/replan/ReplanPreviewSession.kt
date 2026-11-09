@@ -68,7 +68,7 @@ class ReplanPreviewSession(private val scope: CoroutineScope, private val reposi
                 val result = work(); received = result.plan
                 if (token != generation) { received?.reference?.discard(); return@launch }
                 plan = result.plan
-                mutable.value = ReplanRequestState(registrationStatus = result.status, expiresAt = result.plan?.reference?.expiresAt)
+                mutable.value = ReplanRequestState(registrationStatus = result.status, expiresAt = result.plan?.reference?.localExpiresAt)
                 if (plan == null) mutable.value = mutable.value.copy(phase = ReplanRequestPhase.ERROR, error = ReplanError.REGISTRATION_UNAVAILABLE)
                 else scheduleExpiry(requireNotNull(plan))
             } catch (cancelled: CancellationException) { received?.reference?.discard(); throw cancelled }
@@ -79,7 +79,7 @@ class ReplanPreviewSession(private val scope: CoroutineScope, private val reposi
         expiryJob?.cancel()
         expiryJob = scope.launch {
             while (plan === registered && registered.reference.isUsable(clock.instant())) {
-                delay(Duration.between(clock.instant(), registered.reference.expiresAt).toMillis().coerceAtLeast(1))
+                delay(Duration.between(clock.instant(), registered.reference.localExpiresAt).toMillis().coerceAtLeast(1))
             }
             if (plan === registered) expire()
         }

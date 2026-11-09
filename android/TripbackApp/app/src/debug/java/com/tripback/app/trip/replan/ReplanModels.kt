@@ -40,9 +40,10 @@ class ReplanSelection private constructor(val request: RecommendationRequest, va
 }
 
 /** Memory only. No Serializable, public token accessor, data-class copy, log or persistence hook. */
-class PlanReference internal constructor(private var value: String?, val revision: Long, val expiresAt: Instant) {
+class PlanReference internal constructor(private var value: String?, val revision: Long, val expiresAt: Instant,
+    internal val localExpiresAt: Instant = expiresAt) {
     @Synchronized internal fun token(now: Instant): String {
-        if (!now.isBefore(expiresAt)) value = null
+        if (!now.isBefore(localExpiresAt)) value = null
         return value ?: throw ReplanException(ReplanError.PLAN_NOT_FOUND_OR_EXPIRED)
     }
     @Synchronized fun discard() { value = null }

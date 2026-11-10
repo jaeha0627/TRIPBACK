@@ -110,6 +110,49 @@ class RecommendationFlowTest {
         compose.onNodeWithTag("ready").assertExists()
         compose.onNodeWithTag("navigationDisabled").assertIsNotEnabled()
     }
+    @Test fun detailShowsSelectedCourseAndValidatedScheduleThenReturnsToResults() {
+        compose.setContent {AuditViewport {RecommendationFlow(onExit={},repository=FakeRecommendationRepository(0))}}
+        load(FakeScenario.TWO)
+        compose.onNodeWithTag("detailai-proposal-2").performScrollTo().performClick()
+        compose.onNodeWithText("시연 코스 B 일정").assertIsDisplayed()
+        compose.onNodeWithText("집 도착 예상  11:00").assertExists()
+        compose.onNodeWithText("FEASIBLE · 안전 여유 30분").assertExists()
+        compose.onNodeWithTag("detailSchedule").assertIsDisplayed()
+        compose.onNodeWithText("09:30").assertExists()
+        compose.onNodeWithText("귀가 마감 18:00").assertExists()
+        compose.onNodeWithText("방문별 도착 시각은 제공되지 않았습니다.").assertExists()
+        compose.onNodeWithText("AI 추천 이유 · 미검증").assertExists()
+        compose.onNodeWithText("배터리 68%",substring=true).assertDoesNotExist()
+        compose.onNodeWithText("휴게소 넣기").assertDoesNotExist()
+        val back=compose.onNodeWithTag("detailBack").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val select=compose.onNodeWithTag("selectPlan").assertIsDisplayed().assertIsEnabled().fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(back.height>=48f && select.height>=48f)
+        capture("detail-wide")
+        compose.onNodeWithTag("detailBack").performClick()
+        compose.onNodeWithTag("results").assertExists()
+        compose.onNodeWithTag("detailai-proposal-2").performScrollTo().performClick()
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithTag("results").assertExists()
+    }
+    @Test fun smallDetailScrollsTimelineAndKeepsSelectionAboveContent() {
+        compose.setContent {
+            Box(Modifier.requiredSize(600.dp,480.dp)) {
+                RecommendationFlow(onExit={},repository=FakeRecommendationRepository(0))
+            }
+        }
+        compose.onNodeWithTag("parked").performScrollTo().performClick()
+        compose.onNodeWithTag("generate").performClick()
+        compose.waitUntil(5000){compose.onAllNodesWithTag("results").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("detailai-proposal-1").performScrollTo().performClick()
+        compose.onNodeWithTag("selectPlan").assertIsDisplayed()
+        capture("detail-small")
+        compose.onNodeWithText("귀가 마감 18:00").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("selectPlan").assertIsDisplayed()
+        capture("detail-small-timeline")
+        compose.onNodeWithTag("selectPlan").performClick()
+        compose.onNodeWithTag("ready").assertExists()
+        compose.onNodeWithTag("navigationDisabled").performScrollTo().assertIsNotEnabled()
+    }
     @Test fun oneAndZeroResultsAreNotFilled() {
         compose.setContent {AuditViewport {RecommendationFlow(onExit={},repository=FakeRecommendationRepository(0))}}
         load(FakeScenario.ONE)

@@ -75,12 +75,12 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
         Box(Modifier.fillMaxSize().background(Color.White),contentAlignment=Alignment.TopCenter) {
         val homeModifier = when (state.page) {
             RecommendationPage.INPUT -> Modifier.widthIn(max=1080.dp).imePadding()
-            RecommendationPage.RESULTS -> Modifier.widthIn(max=1080.dp)
+            RecommendationPage.RESULTS, RecommendationPage.DETAIL -> Modifier.widthIn(max=1080.dp)
             else -> Modifier
         }
         Column(homeModifier.fillMaxSize().background(Color.White).testTag("recommendationFlow")) {
             if (state.page == RecommendationPage.INPUT) HomeStyle { HomeHeader(onExit) }
-            else if (state.page == RecommendationPage.RESULTS) HomeStyle {
+            else if (state.page == RecommendationPage.RESULTS || state.page == RecommendationPage.DETAIL) HomeStyle {
                 HomeHeader(onExit,onBack=session::back,showTabs=false)
                 Row(Modifier.fillMaxWidth().padding(vertical=10.dp)) {
                     listOf("가는 길","머무는 시간","오는 길").forEach {
@@ -113,7 +113,7 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
                         },hasPrevious=state.response!=null,onPrevious=session::results) }
                     RecommendationPage.LOADING -> LoadingPage(form,onCancel=session::cancel)
                     RecommendationPage.RESULTS -> HomeStyle { ResultsPage(state,onDetail=session::detail,onEdit=session::input) }
-                    RecommendationPage.DETAIL -> DetailPage(state,onSelect=session::select,onBack=session::results)
+                    RecommendationPage.DETAIL -> HomeStyle { DetailPage(state,onSelect=session::select,onBack=session::results) }
                     RecommendationPage.JOURNEY -> journey?.let { current ->
                         com.tripback.app.trip.progress.JourneyScreen(current,session::finishDemo) {
                             com.tripback.app.trip.replan.JourneyReplanDebug(current,state.request,state.raw,state.selectedPlanId, repo is HttpRecommendationRepository)
@@ -401,42 +401,72 @@ fun feasibilityLabel(value:ValidationFeasibility)=when(value) {
     ValidationFeasibility.UNKNOWN->"귀가 가능 여부 미확인"
 }
 @Composable private fun Timeline(a:RecommendationAlternative) {
-    a.orderedVisits.forEachIndexed { i,visit ->
-        val place=a.validation.visits[i].confirmedPlace
-        val leg=a.validation.legs[i]
-        Text("이동 "+(leg.durationSeconds?.let {"${(it+59)/60}분"} ?: "미확인"),color=Color.Gray,fontSize=12.sp)
-        Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-            Text("${i+1}  •",color=Teal)
-            Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                Text(place?.name ?: "장소 미확인",fontWeight=FontWeight.Medium)
-                Text("체류 ${visit.stayMinutes}분 · "+(place?.data?.dataMode?.name ?: "출처 미확인"),fontSize=12.sp)
-                Text(place?.address ?: "주소 미확인",fontSize=12.sp,color=Color.DarkGray)
-            }
-        }
-        HorizontalDivider(color=Line)
+    val time=DateTimeFormatter.ofPattern("HH:mm")
+    Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+        Text(a.validation.request.departAt.format(time),Modifier.width(64.dp),fontSize=13.sp,lineHeight=18.sp,color=Navy)
+        Text("출발",fontSize=14.sp,lineHeight=18.sp,fontWeight=FontWeight.Medium)
     }
-    Text("마지막 방문 → 출발지 귀가  "+(a.validation.legs.last().durationSeconds?.let {"${(it+59)/60}분"} ?: "ETA 미확인"),fontSize=13.sp)
+    ResultTimeline(a)
+    HorizontalDivider(color=Line)
+    Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+        Text(a.validation.predictedReturnAt?.format(time) ?: "미확인",Modifier.width(64.dp),fontSize=13.sp,lineHeight=18.sp,color=Navy)
+        Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Text("집 도착 예상",fontSize=14.sp,lineHeight=18.sp,fontWeight=FontWeight.Medium)
+            Text("귀가 마감 ${a.validation.request.returnDeadline.format(time)}",fontSize=12.sp,lineHeight=16.sp,color=Color.DarkGray)
+            Text("귀가 여유 "+(a.validation.remainingMarginMin?.let { "${it}분" } ?: "미확인"),fontSize=12.sp,lineHeight=16.sp,color=Teal)
+        }
+    }
 }
+
+@Composable private fun DetailSchedule(a:RecommendationAlternative,modifier:Modifier=Modifier) {
+    Column(modifier.fillMaxWidth().border(1.dp,Line).padding(16.dp).testTag("detailSchedule"),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Text("오늘의 일정 · ${a.title}",fontSize=13.sp,lineHeight=18.sp,fontWeight=FontWeight.Medium)
+        Timeline(a)
+    }
+}
+
 @Composable private fun DetailPage(state:RecommendationUiState,onSelect:()->Unit,onBack:()->Unit) {
     val a=state.selected ?: return
-    BoxWithConstraints(Modifier.widthIn(max=1280.dp).fillMaxSize()) {
-        val wide=maxWidth>=900.dp
+    BoxWithConstraints(Modifier.fillMaxSize().testTag("detail")) {
+        val wide=maxWidth>=840.dp
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.weight(1f).padding(24.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
-                Column(Modifier.weight(if(wide)0.65f else 1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                    Title(a.title+" 일정","선택 전 귀가 조건과 장소 정보를 확인해 주세요.")
-                    Panel(soft=true) {Text("귀가 시간 확인",color=Teal);Margin(a);Text("안전 여유 ${state.request?.safetyBufferMin}분 · 미래 교통과 실제 귀가를 보장하지 않습니다.",fontSize=13.sp)}
-                    Panel {Text("AI 추천 이유 · 미검증",color=Teal);Text(a.recommendationReason)}
-                    Panel {Text("방문 정보 안내",fontWeight=FontWeight.Medium);Text("영업·예약·주차·가격·차량 진입 가능성은 확인하지 않았습니다.")}
-                    if(!wide) Panel {Text("오늘의 시연 일정",fontWeight=FontWeight.Medium);Timeline(a)}
-                    Text("장소·이동시간 출처: "+a.dataModes.joinToString {it.name},fontSize=12.sp)
-                    Text("AI 설명 미검증 · 현재 ETA 기준 · 영업과 방문 가능성 미확인",fontSize=12.sp,color=Color.Gray)
+            Row(Modifier.weight(1f).padding(horizontal=16.dp,vertical=12.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
+                Column(Modifier.weight(if(wide)688f else 1f).verticalScroll(rememberScrollState()).testTag("detailInformation"),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+                    Text(a.title+" 일정",fontSize=40.sp,lineHeight=49.sp,letterSpacing=(-0.4).sp)
+                    Text("선택 전 귀가 조건과 방문 정보를 확인해 주세요. 실제 내비 안내는 시작하지 않습니다.",fontSize=14.sp,lineHeight=20.sp,color=Color.DarkGray)
+                    Text(if(LocalHttp.current) "HTTP 검증 결과 · 차량 상태 미연결" else "FAKE · DEMO_SIMULATED · 실제 AI·카카오 호출 없음",fontSize=12.sp,lineHeight=16.sp,color=Teal)
+                    Column(Modifier.fillMaxWidth().background(Soft).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Text("귀가 시간 확인",fontSize=11.sp,lineHeight=14.sp,color=Color.DarkGray)
+                        Margin(a)
+                        Text("${a.feasibility.name} · 안전 여유 ${a.validation.request.safetyBufferMin}분",fontSize=13.sp,lineHeight=18.sp,color=Teal)
+                        Text("현재 ETA 기준 계산이며 미래 교통과 실제 귀가를 보장하지 않습니다.",fontSize=12.sp,lineHeight=17.sp,color=Color.DarkGray)
+                    }
+                    Column(Modifier.fillMaxWidth().background(Soft).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Text("에너지 점검",fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium)
+                        Text("차량 배터리·연료 상태 미연결 · 잔량과 충전 필요 여부를 확인할 수 없습니다.",fontSize=14.sp,lineHeight=20.sp,color=Color.DarkGray)
+                    }
+                    Column(Modifier.fillMaxWidth().border(1.dp,Teal).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                        Text("AI 추천 이유 · 미검증",Modifier.background(Teal).padding(horizontal=8.dp,vertical=4.dp),fontSize=11.sp,lineHeight=16.sp,color=Color.White)
+                        Text(a.recommendationReason,fontSize=14.sp,lineHeight=21.sp)
+                        Text("영업·예약·주차·가격·차량 진입 가능성은 확인하지 않았습니다.",fontSize=12.sp,lineHeight=18.sp,color=Color.DarkGray)
+                    }
+                    Column(Modifier.fillMaxWidth().background(Soft).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Text("안내 전 확인",fontSize=16.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium)
+                        Text("코스 선택은 출발 준비 화면으로 이동합니다. 실제 내비 안내·자동 경로 변경·휴게소 자동 추가는 지원하지 않습니다.",fontSize=14.sp,lineHeight=21.sp,color=Color.DarkGray)
+                    }
+                    Text("장소·이동시간 출처: "+a.dataModes.joinToString {it.name},fontSize=12.sp,lineHeight=18.sp,color=Teal)
+                    if(!wide) DetailSchedule(a)
+                    Spacer(Modifier.height(4.dp))
                 }
-                if(wide) Panel(Modifier.weight(0.35f).verticalScroll(rememberScrollState())) {Text("오늘의 일정 · 시연",fontWeight=FontWeight.Medium);Timeline(a)}
+                if(wide) DetailSchedule(a,Modifier.weight(340f).verticalScroll(rememberScrollState()))
             }
-            Row(Modifier.fillMaxWidth().border(1.dp,Line).padding(12.dp),horizontalArrangement=Arrangement.spacedBy(12.dp,Alignment.CenterHorizontally)) {
-                OutlinedButton(onClick=onBack,shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp)){Text("다른 안 보기")}
-                Action("이 코스 선택 · 출발 준비",onSelect,Modifier.testTag("selectPlan"))
+            HorizontalDivider(color=Line)
+            Box(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp)) {
+                Row(Modifier.widthIn(max=688.dp).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick=onBack,shape=RectangleShape,modifier=Modifier.heightIn(min=50.dp).testTag("detailBack")){Text("다른 안 보기")}
+                    Action("이 코스 선택 · 출발 준비",onSelect,Modifier.weight(1f).testTag("selectPlan"),
+                        enabled=a.feasibility==ValidationFeasibility.FEASIBLE && a.validation.feasibility==ValidationFeasibility.FEASIBLE)
+                }
             }
         }
     }

@@ -46,12 +46,52 @@ class RecommendationFlowTest {
         compose.onNodeWithTag("generate").assertIsDisplayed()
         capture("small-window-validation")
     }
+    @Test fun smallWindowResultsStackAndKeepBothDetailsAndInputs() {
+        compose.setContent {
+            Box(Modifier.requiredSize(600.dp,480.dp)) {
+                RecommendationFlow(onExit={},repository=FakeRecommendationRepository(0))
+            }
+        }
+        compose.onNodeWithTag("parked").performScrollTo().performClick()
+        compose.onNodeWithTag("generate").performClick()
+        compose.waitUntil(5000){compose.onAllNodesWithTag("results").fetchSemanticsNodes().isNotEmpty()}
+        capture("small-results")
+        compose.onNodeWithText("시연 코스 A").performScrollTo().assertIsDisplayed()
+        val first = compose.onNodeWithText("시연 코스 A").fetchSemanticsNode().boundsInRoot.left
+        compose.onNodeWithTag("detailai-proposal-1").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("시연 코스 B").performScrollTo().assertIsDisplayed()
+        val second = compose.onNodeWithText("시연 코스 B").fetchSemanticsNode().boundsInRoot.left
+        org.junit.Assert.assertEquals(first,second,1f)
+        compose.onNodeWithTag("detailai-proposal-2").performScrollTo().assertIsDisplayed()
+        capture("small-results-bottom")
+        compose.onNodeWithTag("detailai-proposal-2").performClick()
+        compose.onNodeWithTag("selectPlan").assertExists()
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithTag("editConditions").performScrollTo().performClick()
+        compose.onNodeWithText("목표 지역").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("천안 독립기념관").assertExists()
+        compose.onNodeWithTag("parked").performScrollTo().assertIsOn()
+    }
+    @Test fun infeasibleResultsRemainRejectedAndHaveNoDetailAction() {
+        compose.setContent {AuditViewport {RecommendationFlow(onExit={},repository=FakeRecommendationRepository(0))}}
+        load(FakeScenario.INFEASIBLE)
+        compose.onNodeWithText("추천 가능한 코스가 없어요").assertExists()
+        compose.onAllNodesWithText("선택할 수 없는 제안 · 귀가 마감 또는 안전 여유를 지키기 어려워요.").assertCountEquals(2)
+        compose.onNodeWithTag("detailai-proposal-1").assertDoesNotExist()
+        compose.onNodeWithTag("detailai-proposal-2").assertDoesNotExist()
+        capture("infeasible")
+    }
     @Test fun fiveScreensAndSelectionRestoreWithoutNavigation() {
         val restoration=StateRestorationTester(compose)
         restoration.setContent {AuditViewport {RecommendationFlow(onExit={})}}
         compose.onNodeWithText("오늘은 어디로\n떠나볼까요?").assertIsDisplayed()
         capture("input")
         load(FakeScenario.TWO)
+        compose.onNodeWithText("천안 독립기념관").assertExists()
+        compose.onNodeWithText("18:00까지 귀가").assertExists()
+        compose.onNodeWithText("안전 여유 30분").assertExists()
+        compose.onAllNodesWithText("FEASIBLE · 현재 ETA 기준 가능").assertCountEquals(2)
+        compose.onAllNodesWithText("집 도착 예상  11:00").assertCountEquals(2)
         capture("results")
         val cards=compose.onAllNodes(hasTestTag("detailai-proposal-1") or hasTestTag("detailai-proposal-2")).fetchSemanticsNodes()
         org.junit.Assert.assertEquals(2,cards.size)

@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class KakaoRoadRouteLiveTests {
     @Test
     void officialDirectionsReturnsValidatedLiveEtaAndPreservesRequestedEndpoints() {
+        assumeTrue(Boolean.getBoolean("tripback.liveTests.allowed"),
+                "status=SKIPPED, code=LIVE_TASK_NOT_AUTHORIZED");
         assumeTrue("1".equals(System.getenv("TRIPBACK_RUN_KAKAO_MOBILITY_LIVE_TESTS")),
                 "status=SKIPPED, code=LIVE_TEST_NOT_ENABLED");
         assumeTrue(keyConfigured(), "status=SKIPPED, code=KEY_NOT_CONFIGURED");

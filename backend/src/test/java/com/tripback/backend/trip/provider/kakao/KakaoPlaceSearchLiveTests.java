@@ -18,6 +18,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class KakaoPlaceSearchLiveTests {
     @Test
     void officialKeywordSearchReturnsValidatedLiveCandidates() {
+        assumeTrue(Boolean.getBoolean("tripback.liveTests.allowed"),
+                "status=SKIPPED, code=LIVE_TASK_NOT_AUTHORIZED");
+        assumeTrue("1".equals(System.getenv("TRIPBACK_RUN_KAKAO_LOCAL_LIVE_TESTS")),
+                "status=SKIPPED, code=LIVE_TEST_NOT_ENABLED");
         // Boolean only: never interpolate the environment value into a message or test diagnostic.
         assumeTrue(keyConfigured(), "SKIPPED: Kakao REST API key environment variable is not configured");
         String httpLogging = System.getProperty("jdk.httpclient.HttpClient.log", "");

@@ -27,6 +27,18 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// Ordinary tests always abort live tests, even if credentials/opt-in environment flags exist.
+// Keep the tests visible as SKIPPED with an explicit reason in the JUnit reports.
 tasks.named('test') {
 	useJUnitPlatform()
+	systemProperty 'tripback.liveTests.allowed', 'false'
+}
+
+tasks.register('liveTest', Test) {
+	group = 'verification'
+	description = 'Explicitly opted-in Kakao live tests only; may make billable requests.'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform { includeTags 'live' }
+	systemProperty 'tripback.liveTests.allowed', providers.gradleProperty('enableLiveTests').map { it == 'true' }.getOrElse(false).toString()
 }

@@ -16,7 +16,7 @@ class ReplanFixtureScreenTest {
         compose.setContent { MaterialTheme {
             if (open) ReplanFixtureScreen { open = false } else Text("Fixture 닫힘 · 일반 DEMO 유지")
         } }
-        compose.onNodeWithTag("fixtureOnlyWarning").performScrollTo().assertTextContains("실제 서버 검증 계획 아님")
+        compose.onNodeWithTag("fixtureOnlyWarning").performScrollTo().assertTextContains("실제 서버 검증 계획 아님", substring = true)
         compose.onNodeWithTag("total50").performScrollTo().performClick()
         compose.onNodeWithTag("registerReplan").performScrollTo().performClick()
         compose.onNodeWithTag("submitFakeRegistration").assertIsNotEnabled()
@@ -27,8 +27,8 @@ class ReplanFixtureScreenTest {
         }
         compose.onNodeWithTag("requestReplanPreview").performScrollTo().performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("afterFeasibility").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextContains("FEASIBLE")
-        compose.onNodeWithTag("previewEta1").performScrollTo().assertTextContains("UNVERIFIED")
+        compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextEquals("FAKE · FEASIBLE")
+        compose.onNodeWithTag("previewEta1").performScrollTo().assertTextContains("UNVERIFIED", substring = true)
         compose.onNodeWithTag("rejectReplanPreview").performScrollTo().performClick()
         compose.onNodeWithText("Fixture 닫힘 · 일반 DEMO 유지").assertExists()
     }

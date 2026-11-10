@@ -28,6 +28,21 @@ private val Teal=Color(0xFF007FA8)
 private val Line=Color(0xFFD9DEE3)
 private val Soft=Color(0xFFF3F5F7)
 private val Ink=Color(0xFF14191F)
+private val HomeFont = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(com.tripback.app.R.font.noto_sans_kr_regular)
+)
+
+@Composable private fun HomeStyle(content:@Composable ()->Unit) {
+    val base = MaterialTheme.typography
+    MaterialTheme(typography=base.copy(
+        bodyLarge=base.bodyLarge.copy(fontFamily=HomeFont),
+        bodyMedium=base.bodyMedium.copy(fontFamily=HomeFont),
+        bodySmall=base.bodySmall.copy(fontFamily=HomeFont),
+        labelLarge=base.labelLarge.copy(fontFamily=HomeFont),
+        labelMedium=base.labelMedium.copy(fontFamily=HomeFont),
+        labelSmall=base.labelSmall.copy(fontFamily=HomeFont)
+    ),content=content)
+}
 
 @Composable
 fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=null,
@@ -56,7 +71,12 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
     BackHandler { if(state.page==RecommendationPage.INPUT) onExit() else session.back() }
     CompositionLocalProvider(LocalHttp provides (repo is HttpRecommendationRepository)) {
     MaterialTheme(colorScheme=lightColorScheme(primary=Navy,secondary=Teal,background=Color.White,surface=Color.White,onSurface=Ink)) {
-        Column(Modifier.fillMaxSize().background(Color.White).testTag("recommendationFlow")) {
+        // Share the home width between header, form and footer. Keep other pages unchanged.
+        Box(Modifier.fillMaxSize().background(Color.White),contentAlignment=Alignment.TopCenter) {
+        val homeModifier = if (state.page == RecommendationPage.INPUT)
+            Modifier.widthIn(max=1080.dp).imePadding() else Modifier
+        Column(homeModifier.fillMaxSize().background(Color.White).testTag("recommendationFlow")) {
+            if (state.page == RecommendationPage.INPUT) HomeStyle { HomeHeader(onExit) } else {
             Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                 OutlinedButton(onClick={if(state.page==RecommendationPage.INPUT) onExit() else session.back()},shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp)) { Text("‹ 뒤로") }
                 Text("  ⇄  Tripback",color=Navy,fontSize=20.sp)
@@ -71,13 +91,14 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
             }
             Text(if(LocalHttp.current) "HTTP 개발 연결 · 127.0.0.1:8080 · 테스트 좌표 · 차량 기어·속도 미연결" else "FAKE 시연 · 실제 AI·카카오 호출 없음 · 차량 기어·속도 미연결",
                 Modifier.fillMaxWidth().background(Soft).padding(horizontal=24.dp,vertical=8.dp),fontSize=13.sp,color=Navy)
+            }
             Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.TopCenter) {
                 when(state.page) {
-                    RecommendationPage.INPUT -> InputPage(form,{form=it;inputError=null},inputError ?: state.error,
+                    RecommendationPage.INPUT -> HomeStyle { InputPage(form,{form=it;inputError=null},inputError ?: state.error,
                         onSubmit={
                             try { val request=form.request(); RecommendationJson.request(request);inputError=null;session.submit(request,form.scenario) }
                             catch(_:Exception) { inputError="지역·좌표·날짜·시각·정수 범위·필수 장소 ID와 주차 확인을 점검해 주세요." }
-                        },hasPrevious=state.response!=null,onPrevious=session::results)
+                        },hasPrevious=state.response!=null,onPrevious=session::results) }
                     RecommendationPage.LOADING -> LoadingPage(form,onCancel=session::cancel)
                     RecommendationPage.RESULTS -> ResultsPage(state,onDetail=session::detail,onEdit=session::input)
                     RecommendationPage.DETAIL -> DetailPage(state,onSelect=session::select,onBack=session::results)
@@ -93,6 +114,28 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
     }
 }
 
+}
+}
+
+@Composable private fun HomeHeader(onExit:()->Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    Row(Modifier.horizontalScroll(rememberScrollState()).width(maxOf(maxWidth,600.dp)).heightIn(min=57.dp).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
+        OutlinedButton(onClick=onExit,shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp)) { Text("‹ 뒤로") }
+        Text("⇄",Modifier.padding(start=12.dp).background(Navy).padding(5.dp),color=Color.White,fontSize=14.sp)
+        Text("Tripback",Modifier.padding(start=8.dp),color=Navy,fontSize=15.sp,fontWeight=FontWeight.Medium)
+        Spacer(Modifier.weight(1f))
+        Column(horizontalAlignment=Alignment.CenterHorizontally) {
+            Text("새 여행",Modifier.padding(vertical=14.dp),color=Navy,fontSize=16.sp,fontWeight=FontWeight.Medium)
+            Box(Modifier.width(83.dp).height(3.dp).background(Teal))
+        }
+        Text("내 여행 · 준비 중",Modifier.padding(horizontal=12.dp),color=Color.Gray,fontSize=13.sp)
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick=onExit,modifier=Modifier.heightIn(min=48.dp)) { Text("기존 기능") }
+    }
+    }
+    HorizontalDivider(color=Line)
+    Text(if(LocalHttp.current) "HTTP 개발 연결 · 테스트 좌표 · 차량 상태 미연결" else "FAKE · DEMO_SIMULATED · 실제 AI·카카오 호출 없음 · 차량 상태 미연결",
+        Modifier.fillMaxWidth().background(Soft).padding(horizontal=16.dp,vertical=6.dp),fontSize=12.sp,color=Navy)
 }
 
 @Composable private fun Title(text:String,subtitle:String) {
@@ -130,17 +173,33 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
 @Composable private fun InputPage(form:RecommendationForm,change:(RecommendationForm)->Unit,error:String?,
     onSubmit:()->Unit,hasPrevious:Boolean,onPrevious:()->Unit) {
     var more by rememberSaveable { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.widthIn(max=1280.dp).fillMaxSize()) {
-        val wide=maxWidth>=900.dp
+    BoxWithConstraints(Modifier.widthIn(max=1080.dp).fillMaxSize()) {
+        val wide=maxWidth>=840.dp
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.weight(1f).padding(horizontal=24.dp,vertical=18.dp),horizontalArrangement=Arrangement.spacedBy(22.dp)) {
-                Column(Modifier.weight(if(wide) 0.68f else 1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-                    Title("오늘은 어디로\n떠나볼까요?","가는 길, 머무는 시간, 돌아오는 길까지 하루 일정을 준비해요.")
-                    Panel(soft=true) {
-                        Text("조건으로 알려주세요",fontWeight=FontWeight.Medium)
-                        Text("이번 버전은 주차 상태에서 조작하는 화면 시연입니다. 음성 입력은 연결하지 않았습니다.",fontSize=13.sp)
+            Row(Modifier.weight(1f).padding(horizontal=16.dp,vertical=12.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
+                Column(Modifier.weight(if(wide) 688f else 1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+                    Text("오늘은 어디로\n떠나볼까요?",fontSize=40.sp,lineHeight=53.sp,letterSpacing=(-0.4).sp)
+                    Text("가는 길, 머무는 시간, 돌아오는 길까지 하루 일정을 한 번에 준비해요.",fontSize=14.sp,color=Color.DarkGray)
+                    Column(Modifier.fillMaxWidth().border(1.dp,Teal).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                        Text("여행 조건을 알려주세요",fontWeight=FontWeight.Medium)
+                        Text("주차 후 아래 조건을 선택해 주세요. 음성 입력은 아직 지원하지 않습니다.",fontSize=13.sp)
                     }
                     Field("목표 지역",form.area,{change(form.copy(area=it))})
+                    Field("여행 날짜 · YYYY-MM-DD · Asia/Seoul",form.date,{change(form.copy(date=it))})
+                    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                        Field("출발 · HH:mm",form.depart,{change(form.copy(depart=it))},Modifier.weight(1f))
+                        Field("귀가 마감 · 같은 날",form.deadline,{change(form.copy(deadline=it))},Modifier.weight(1f))
+                    }
+                    Choices("안전 여유 시간",mapOf("15" to "15분","30" to "30분","45" to "45분"),listOf(form.buffer.toString())){change(form.copy(buffer=it.toInt()))}
+                    Choices("누구와 가나요?",TripChoices.companions,listOf(form.companion)){change(form.copy(companion=it))}
+                    if(form.companion=="FAMILY") Choices("아이 연령대",TripChoices.childAges,listOf(form.child)){change(form.copy(child=it))}
+                    Choices("하고 싶은 것 · 여러 개 선택",TripChoices.interests,form.interests){change(form.copy(interests=toggle(form.interests,it)))}
+                    Choices("차량 · 사용자 선택",TripChoices.vehicles,listOf(form.vehicle)){change(form.copy(vehicle=it))}
+                    Field("최대 편도시간 · 1~180분",form.oneWay,{change(form.copy(oneWay=it))})
+                    Field("필수 방문 카카오 ID · 쉼표 구분, 최대 5개",form.requiredIds,{change(form.copy(requiredIds=it))})
+                    Text(if(LocalHttp.current) "서버가 확인할 KAKAO_LOCAL ID를 입력합니다. 미확인 ID는 대체하지 않습니다." else "시연 후보 ID: fixture-001, fixture-002. 다른 ID는 임의 대체하지 않습니다.",fontSize=12.sp,color=Color.DarkGray)
+                    OutlinedButton(onClick={more=!more},shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp)) {Text(if(more)"더 자세한 조건 접기 −" else "더 자세한 조건 +")}
+                    if(more) {
                     Text("테스트용 좌표 · GPS나 실제 사용자 위치가 아닙니다.",color=Teal,fontSize=13.sp)
                     Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                         Field("출발 위도",form.originLat,{change(form.copy(originLat=it))},Modifier.weight(1f))
@@ -150,21 +209,7 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
                         Field("목표 중심 위도",form.centerLat,{change(form.copy(centerLat=it))},Modifier.weight(1f))
                         Field("목표 중심 경도",form.centerLon,{change(form.copy(centerLon=it))},Modifier.weight(1f))
                     }
-                    Field("여행 날짜 · YYYY-MM-DD · Asia/Seoul",form.date,{change(form.copy(date=it))})
-                    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                        Field("출발 · HH:mm",form.depart,{change(form.copy(depart=it))},Modifier.weight(1f))
-                        Field("귀가 마감 · 같은 날",form.deadline,{change(form.copy(deadline=it))},Modifier.weight(1f))
-                    }
-                    Choices("안전 여유 시간",mapOf("15" to "15분","30" to "30분","45" to "45분"),listOf(form.buffer.toString())){change(form.copy(buffer=it.toInt()))}
-                    Choices("누구와 가나요?",TripChoices.companions,listOf(form.companion)){change(form.copy(companion=it))}
-                    if(form.companion=="FAMILY") Choices("아이 연령대",TripChoices.childAges,listOf(form.child)){change(form.copy(child=it))}
-                    Choices("관심 활동",TripChoices.interests,form.interests){change(form.copy(interests=toggle(form.interests,it)))}
-                    Choices("차량 · 사용자 선택",TripChoices.vehicles,listOf(form.vehicle)){change(form.copy(vehicle=it))}
-                    Field("최대 편도시간 · 1~180분",form.oneWay,{change(form.copy(oneWay=it))})
-                    Field("필수 방문 카카오 ID · 쉼표 구분, 최대 5개",form.requiredIds,{change(form.copy(requiredIds=it))})
-                    Text(if(LocalHttp.current) "서버가 확인할 KAKAO_LOCAL ID를 입력합니다. 미확인 ID는 대체하지 않습니다." else "시연 후보 ID: fixture-001, fixture-002. 다른 ID는 임의 대체하지 않습니다.",fontSize=12.sp,color=Color.DarkGray)
-                    OutlinedButton(onClick={more=!more},shape=RectangleShape,modifier=Modifier.heightIn(min=48.dp)) {Text(if(more)"선택 조건 접기 −" else "선택 조건 더 보기 +")}
-                    if(more) {
+
                         Text("아래 조건은 AI 선호 힌트이며 실제 충족 여부는 확인하지 않습니다.",color=Teal,fontSize=13.sp)
                         Field("1인 예산 · 빈칸은 미지정",form.budget,{change(form.copy(budget=it))})
                         Choices("식사",TripChoices.meals,form.meals){change(form.copy(meals=toggle(form.meals,it)))}
@@ -182,7 +227,12 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
                     if(hasPrevious) TextButton(onClick=onPrevious){Text("이전 입력의 마지막 결과 보기")}
                     Spacer(Modifier.height(16.dp))
                 }
-                if(wide) Column(Modifier.weight(0.32f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                if(wide) Column(Modifier.weight(340f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                    Panel {
+                        Text("지난 여행",fontSize=13.sp,fontWeight=FontWeight.Medium)
+                        Text("지난 여행 내역 미연결",Modifier.fillMaxWidth().background(Soft).padding(16.dp),color=Navy)
+                        Text("저장된 여행 조회 기능은 아직 지원하지 않습니다.",fontSize=14.sp,color=Color.DarkGray)
+                    }
                     if(BuildConfig.DEBUG && !LocalHttp.current) ScenarioPicker(form.scenario){change(form.copy(scenario=it))}
                     Panel { Text("왕복 여행 준비",fontWeight=FontWeight.Medium);Text("01  조건 입력\n02  코스 비교\n03  상세 확인\n04  로컬 선택",lineHeight=30.sp)
                         Text("실제 내비 안내·여행 저장은 시작하지 않습니다.",fontSize=13.sp,color=Color.DarkGray) }
@@ -190,8 +240,11 @@ private fun toggle(values:List<String>,key:String)=if(key in values) values-key 
                 }
             }
             HorizontalDivider(color=Line)
-            Box(Modifier.fillMaxWidth().padding(12.dp),contentAlignment=Alignment.Center) {
-                Action(if(LocalHttp.current) "서버에 AI 일정 요청" else "AI 일정 시연 만들기",onSubmit,Modifier.widthIn(max=520.dp).fillMaxWidth().testTag("generate"))
+            Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
+                Box(Modifier.weight(if(wide) 688f else 1f),contentAlignment=Alignment.Center) {
+                    Action(if(LocalHttp.current) "AI로 일정 만들기" else "AI 일정 시연 만들기",onSubmit,Modifier.widthIn(max=520.dp).fillMaxWidth().testTag("generate"))
+                }
+                if(wide) Spacer(Modifier.weight(340f))
             }
         }
     }

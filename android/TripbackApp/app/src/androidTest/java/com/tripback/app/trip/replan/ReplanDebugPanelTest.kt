@@ -70,15 +70,15 @@ class ReplanDebugPanelTest {
         } }
         compose.onNodeWithTag("requestReplanPreview").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("total50").performScrollTo().performClick()
-        compose.onNodeWithTag("requestedTotal").assertTextContains("50분")
+        compose.onNodeWithTag("requestedTotal").assertTextContains("50분", substring = true)
         compose.onNodeWithTag("registerReplan").performScrollTo().performClick()
         compose.onNodeWithTag("submitFakeRegistration").assertIsNotEnabled()
         compose.onNodeWithTag("confirmFakeRegistration").performClick()
         compose.onNodeWithTag("submitFakeRegistration").performClick()
         compose.onNodeWithTag("requestReplanPreview").performScrollTo().assertIsEnabled().performClick()
-        compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextContains("FEASIBLE")
-        compose.onNodeWithTag("afterReturn").assertTextContains("11:30:00")
-        compose.onNodeWithTag("previewEta1").performScrollTo().assertTextContains("UNVERIFIED")
+        compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextEquals("FAKE · FEASIBLE")
+        compose.onNodeWithTag("afterReturn").assertTextContains("11:30:00", substring = true)
+        compose.onNodeWithTag("previewEta1").performScrollTo().assertTextContains("UNVERIFIED", substring = true)
         compose.onNodeWithTag("rejectReplanPreview").performScrollTo().performClick()
         compose.onNodeWithText("닫힘 · 원래 일정 유지").assertExists()
         compose.runOnIdle { assertEquals(1, registrations); assertEquals(1, previews); assertEquals(30L, current.originalStayMinutes) }
@@ -91,11 +91,11 @@ class ReplanDebugPanelTest {
         } }
         compose.onNodeWithTag("registerReplan").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag("requestReplanPreview").assertIsNotEnabled()
-        compose.onNodeWithTag("replanError").assertTextContains("PLAN_REVISION_MISMATCH")
+        compose.onNodeWithTag("replanError").assertTextContains("PLAN_REVISION_MISMATCH", substring = true)
         compose.runOnIdle { current = view().copy(requestState = ReplanRequestState(
             phase = ReplanRequestPhase.PREVIEW_READY, preview = preview(ValidationFeasibility.UNKNOWN))) }
-        compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextContains("UNKNOWN")
-        compose.onNodeWithTag("notServerApproved").performScrollTo().assertTextContains("서버 일정 확정 아님")
+        compose.onNodeWithTag("afterFeasibility").performScrollTo().assertTextEquals("FAKE · UNKNOWN")
+        compose.onNodeWithTag("notServerApproved").performScrollTo().assertTextContains("서버 일정 확정 아님", substring = true)
     }
     @Test fun registrationValidationFailureShowsOnlyFixedDiagnosticAndUncertainty() {
         val current = view().copy(canPreview = false, requestState = ReplanRequestState(

@@ -31,6 +31,21 @@ class RecommendationFlowTest {
         compose.onNodeWithTag("generate").performClick()
         compose.waitUntil(5000){compose.onAllNodesWithTag("results").fetchSemanticsNodes().isNotEmpty()}
     }
+    @Test fun smallWindowKeepsFooterAndScrolledFieldsAccessible() {
+        compose.setContent {
+            Box(Modifier.requiredSize(600.dp,480.dp)) {
+                RecommendationFlow(onExit={},repository=FakeRecommendationRepository(0))
+            }
+        }
+        compose.onNodeWithTag("generate").assertIsDisplayed()
+        capture("small-window")
+        compose.onNodeWithText("필수 방문 카카오 ID · 쉼표 구분, 최대 5개").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("parked").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("generate").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("recommendationError").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("generate").assertIsDisplayed()
+        capture("small-window-validation")
+    }
     @Test fun fiveScreensAndSelectionRestoreWithoutNavigation() {
         val restoration=StateRestorationTester(compose)
         restoration.setContent {AuditViewport {RecommendationFlow(onExit={})}}

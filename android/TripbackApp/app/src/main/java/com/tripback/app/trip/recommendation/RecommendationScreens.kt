@@ -32,7 +32,7 @@ private val HomeFont = androidx.compose.ui.text.font.FontFamily(
     androidx.compose.ui.text.font.Font(com.tripback.app.R.font.noto_sans_kr_regular)
 )
 
-@Composable private fun HomeStyle(content:@Composable ()->Unit) {
+@Composable internal fun HomeStyle(content:@Composable ()->Unit) {
     val base = MaterialTheme.typography
     MaterialTheme(typography=base.copy(
         bodyLarge=base.bodyLarge.copy(fontFamily=HomeFont),
@@ -59,6 +59,8 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
     val session=rememberSaveable(saver=saver) { RecommendationSession(scope,repo,navigation,journeyClock) }
     val state by session.state.collectAsState()
     val journey by session.journey.collectAsState()
+    val journeyProgress = journey?.state?.collectAsState()?.value
+    val staying = state.page==RecommendationPage.JOURNEY && journeyProgress?.phase==com.tripback.app.trip.progress.JourneyPhase.STAYING
     val departure by session.navigation.state.collectAsState()
     var form by rememberSaveable { mutableStateOf(RecommendationForm()) }
     var inputError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -76,10 +78,11 @@ fun RecommendationFlow(onExit:()->Unit, repository:RecommendationRepository?=nul
         val homeModifier = when (state.page) {
             RecommendationPage.INPUT -> Modifier.widthIn(max=1080.dp).imePadding()
             RecommendationPage.RESULTS, RecommendationPage.DETAIL -> Modifier.widthIn(max=1080.dp)
-            else -> Modifier
+            else -> if(staying) Modifier.widthIn(max=1080.dp) else Modifier
         }
         Column(homeModifier.fillMaxSize().background(Color.White).testTag("recommendationFlow")) {
-            if (state.page == RecommendationPage.INPUT) HomeStyle { HomeHeader(onExit) }
+            if(staying) { /* STAYING supplies its own non-navigating header. */ }
+            else if (state.page == RecommendationPage.INPUT) HomeStyle { HomeHeader(onExit) }
             else if (state.page == RecommendationPage.RESULTS || state.page == RecommendationPage.DETAIL) HomeStyle {
                 HomeHeader(onExit,onBack=session::back,showTabs=false)
                 Row(Modifier.fillMaxWidth().padding(vertical=10.dp)) {

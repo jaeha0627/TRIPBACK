@@ -97,4 +97,64 @@ class TripJourneyFlowTest {
         compose.onNodeWithTag("returnStatus").assertTextContains("UNKNOWN",substring=true)
     }
 
+    private class StayClock(var now:Long,var mono:Long=100000L):JourneyClock {
+        override fun wall()=now
+        override fun elapsed()=mono
+        fun advance(seconds:Long) {now+=seconds*1000;mono+=seconds*1000}
+    }
+    private fun staying(clock:JourneyClock):TripJourney {
+        val plan=RecommendationJson.response(RecommendationFixtures.response(request,FakeScenario.ONE),request).alternatives.first()
+        return TripJourney(plan,request,clock).also { j ->
+            j.depart(true);j.manualAdvance(JourneyPhase.DEPARTURE,j.state.value.revision)
+            j.manualAdvance(JourneyPhase.TRAVELING,j.state.value.revision);j.startStay()
+        }
+    }
+    @Test fun stayingLayoutTimerApprovalAndDebugEntryRemainSafe() {
+        val clock=StayClock(request.departAt.toInstant().toEpochMilli())
+        val j=staying(clock)
+        val raw=RecommendationFixtures.response(request,FakeScenario.ONE)
+        clock.advance(90)
+        compose.setContent {Box(Modifier.requiredSize(1080.dp,720.dp)) {
+            JourneyScreen(j,{}) {
+                com.tripback.app.trip.replan.JourneyReplanDebug(j,request,raw,j.plan.planId,useHttp=false)
+            }
+        }}
+        compose.onNodeWithTag("stayCountdown").assertTextEquals("00:28:30")
+        compose.onNodeWithTag("stayElapsed").assertTextEquals("수동 시연 경과 00:01:30")
+        compose.onNodeWithText("현재 방문지 · 머무는 중").assertIsDisplayed()
+        compose.onNodeWithTag("returnStatus").assertTextContains("UNKNOWN",substring=true)
+        capture("staying-wide")
+        compose.runOnIdle {clock.advance(60)}
+        compose.waitUntil(5000) {compose.onAllNodesWithText("00:27:30").fetchSemanticsNodes().isNotEmpty()}
+        click("shortenProposal");assertEquals(1800L,j.state.value.stays[0])
+        compose.onNodeWithTag("rejectChange").performClick();assertEquals(1800L,j.state.value.stays[0])
+        click("shortenProposal");compose.onNodeWithTag("approveChange").performClick()
+        assertEquals(1200L,j.state.value.stays[0]);assertEquals(30L,j.plan.orderedVisits[0].stayMinutes)
+        click("omitProposal");assertTrue(j.state.value.omitted.isEmpty())
+        compose.onNodeWithTag("rejectChange").performClick();assertTrue(j.state.value.omitted.isEmpty())
+        click("openReplanPreview");compose.onNodeWithTag("replanDebugPanel").assertExists()
+        compose.onNodeWithTag("previewOnly").assertTextContains("FAKE",substring=true)
+        compose.onNodeWithTag("closeReplanPreview").performClick()
+        compose.onNodeWithTag("finishStay").performScrollTo().assertIsDisplayed()
+        capture("staying-controls")
+        click("finishStay");assertEquals(JourneyPhase.DEPARTURE,j.state.value.phase)
+    }
+    @Test fun smallStayingScrollsScheduleAndClockJumpDisablesFinish() {
+        val clock=StayClock(request.departAt.toInstant().toEpochMilli())
+        val j=staying(clock)
+        compose.setContent {Box(Modifier.requiredSize(600.dp,480.dp)){JourneyScreen(j,{})}}
+        compose.onNodeWithTag("stayCountdown").assertExists()
+        capture("staying-small")
+        compose.onNodeWithTag("finishStay").performScrollTo().assertIsDisplayed()
+        assertTrue(compose.onNodeWithTag("finishStay").fetchSemanticsNode().boundsInRoot.height>=48f)
+        compose.onNodeWithTag("stayVisit1").performScrollTo().assertIsDisplayed()
+        capture("staying-small-schedule")
+        compose.runOnIdle {clock.now+=60000}
+        compose.waitUntil(5000) {compose.onAllNodesWithText("체류 시계 변경 감지 · 확인 필요").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithTag("finishStay").performScrollTo().assertIsNotEnabled()
+        assertEquals(JourneyPhase.STAYING,j.state.value.phase)
+        compose.onNodeWithTag("stayCountdown").performScrollTo().assertTextEquals("UNKNOWN")
+        capture("staying-clock-unknown")
+    }
+
 }

@@ -1,10 +1,12 @@
 # Tripback
 
+공모전 제출 팀명: **BACK2GETHER(백투게더)**
+
 AI 기반 왕복 여행 일정 추천 및 체류·귀가 관리 앱입니다. Pleos Connect에서 여행 조건 입력 → 코스 비교 → 상세 확인 → 수동 여행·체류·귀가 시연을 제공합니다.
 
 ## 제출 APK
 
-- **[서명된 Release APK 다운로드](apk/Tripback_Tripback_release.apk)**
+- **[서명된 Release APK 다운로드](apk/BACK2GETHER_Tripback_release.apk)**
 - 패키지: `com.tripback.app` · versionCode `1` · versionName `1.0`
 - 크기: **6,596,717 bytes**
 - SHA-256: `95b641f6a0724d23e0cd2b9a796b667f30d2f5e3a5707bf7960b6c3e1eec0da2`
@@ -14,7 +16,7 @@ AI 기반 왕복 여행 일정 추천 및 체류·귀가 관리 앱입니다. Pl
 
 ```powershell
 adb -s <기기> shell am get-current-user
-adb -s <기기> install -r --user <사용자ID> apk/Tripback_Tripback_release.apk
+adb -s <기기> install -r --user <사용자ID> apk/BACK2GETHER_Tripback_release.apk
 adb -s <기기> shell am start --user <사용자ID> -n com.tripback.app/.MainActivity
 ```
 
@@ -82,7 +84,7 @@ Invoke-RestMethod http://127.0.0.1:8080/api/v1/health
 
 ## 보안·참고 문서
 
-서명키·비밀번호·API 키·`.env`·`local.properties`·개인정보·R8 mapping은 제출 파일에 포함하지 않습니다. APK의 서명 인증서는 공개 검증 정보이며 개인키는 포함하지 않습니다. 비공개 GitHub 저장소를 제출한다면 소유자가 심사 계정의 접근 권한을 별도로 확인해야 합니다.
+서명키·비밀번호·API 키·`.env`·`local.properties`·개인정보·R8 mapping은 제출 파일에 포함하지 않습니다. APK의 서명 인증서는 공개 검증 정보이며 개인키는 포함하지 않습니다. 공모전 제출 저장소는 2026-11-16까지 Public으로 전환하고, 심사 결과 발표 예정일(2026-11-23)까지 공개 상태를 유지해야 합니다. 별도의 심사용 Collaborator 초대는 필요하지 않습니다.
 
 - [API 계약](docs/api-contract.md)
 - [SDK 가용성 검증표](docs/sdk-capability-matrix.md)
